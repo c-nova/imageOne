@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "commonjs",
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "./",
+    "esModuleInterop": true,
+    "strict": true
+  },
+  "include": [
+    "api/*.ts",
+    "recommend/*.ts",
+    "list/*.ts",
+    "delete/*.ts",
+    "edit/*.ts",
+    "generate/*.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

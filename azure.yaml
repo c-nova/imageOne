@@ -1,0 +1,16 @@
+name: imageOne
+resourceGroup: imageOne-rg-dev
+infra:
+  template: infra/main.bicep
+  parameters:
+    environmentName: dev
+    location: japaneast
+services:
+  api:
+    project: api
+    host: function
+    language: ts
+  app:
+    project: app
+    host: staticwebapp
+    language: ts
