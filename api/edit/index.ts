@@ -23,12 +23,12 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     return;
   }
 
-  // 実際に使用するサイズを決定（actualSizeが優先、なければsizeを使用）
-  const usedSize = actualSize || size || "1024x1024";
+  // 編集モードでは actualSize のみを使用（size は無視）
+  const usedSize = actualSize || "1024x1024"; // デフォルト値
   
   context.log(`🎯 編集リクエスト受信詳細:`);
   context.log(`  - prompt: ${prompt}`);
-  context.log(`  - size (ユーザー選択): ${size}`);
+  context.log(`  - size (フロントエンド): ${size || 'undefined'}`);
   context.log(`  - actualSize (検出値): ${actualSize}`);
   context.log(`  - usedSize (最終使用): ${usedSize}`);
   context.log(`  - hasMask: ${!!maskBase64}`);
@@ -49,15 +49,36 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     formData.append('image', imageBuffer, { filename: 'image.png', contentType: 'image/png' });
     
-    // マスクがある場合は追加
+    // マスクを追加（必須パラメータ）
     if (maskBase64) {
       const maskBuffer = Buffer.from(maskBase64, 'base64');
       formData.append('mask', maskBuffer, { filename: 'mask.png', contentType: 'image/png' });
+      context.log('🎭 マスクが提供されました');
+    } else {
+      context.log('⚠️ マスクが提供されていません - Azure OpenAI Image Edit APIにはマスクが必須です');
+      context.res = { status: 400, body: { error: "画像編集にはマスクが必須です。フロントエンドでマスク生成を確認してください。" } };
+      return;
     }
     
     // その他のパラメータを追加（最新仕様対応）
     if (prompt) {
-      formData.append('prompt', prompt);
+      // 🎨 色調保持のための強化されたシステムプロンプトを追加
+      const enhancedPrompt = `${prompt}
+
+【CRITICAL COLOR PRESERVATION INSTRUCTIONS - MUST FOLLOW】:
+- PRESERVE ORIGINAL COLORS: Maintain the exact color temperature, hue, saturation, and brightness of the original image
+- NO COLOR FILTERS: Do not apply sepia, vintage, warm, cool, or any color filtering effects
+- NO TONE MAPPING: Keep the original color palette intact - no sepia tones, yellow tints, or color shifts
+- MAINTAIN VIBRANCY: Preserve the original vibrancy and color intensity
+- EXACT COLOR MATCHING: New elements should match the color profile of the surrounding areas
+- NO AGING EFFECTS: Avoid vintage, old photo, or weathered color effects
+- NEUTRAL COLOR PROCESSING: Use neutral color processing without artistic color grading
+- RGB PRESERVATION: Maintain the original RGB color space and values where possible
+- COLOR CONSISTENCY: Ensure color consistency across the entire image
+- NATURAL LIGHTING: Maintain the original lighting conditions and color temperature`;
+      
+      formData.append('prompt', enhancedPrompt);
+      context.log('🎨 強化された色調保持プロンプトを追加しました');
     }
     formData.append('model', 'gpt-image-1'); // 必須パラメータ追加
     formData.append('n', '1');

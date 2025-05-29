@@ -67,18 +67,31 @@ function AppContent() {
       setHasMaskContent(false);
       return;
     }
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       setHasMaskContent(false);
       return;
     }
     const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+    
+    // 🔍 より厳密なマスク検知：真っ白（255,255,255）以外を検出
     for (let i = 0; i < imageData.data.length; i += 4) {
-      if (imageData.data[i + 3] > 0) { // alpha>0
+      const r = imageData.data[i];
+      const g = imageData.data[i + 1];
+      const b = imageData.data[i + 2];
+      const a = imageData.data[i + 3];
+      
+      // 完全に透明なピクセルは無視
+      if (a === 0) continue;
+      
+      // 真っ白（255,255,255）でないピクセルがあればマスクありと判定
+      if (r !== 255 || g !== 255 || b !== 255) {
+        console.log(`🖌️ マスク検出: RGB(${r},${g},${b}) at position ${Math.floor((i/4) % canvasRef.current.width)},${Math.floor((i/4) / canvasRef.current.width)}`);
         setHasMaskContent(true);
         return;
       }
     }
+    console.log('🎨 マスクなし: すべてのピクセルが白(255,255,255)です');
     setHasMaskContent(false);
   };
 
@@ -134,7 +147,14 @@ function AppContent() {
       return;
     }
     
+    console.log('🚀 generateImage開始 - モード:', mode);
     setLoadingImg(true);
+    
+    // 変数を関数の最初で宣言（スコープ問題回避）
+    let actualSize: string = '1024x1024';
+    let imageBase64: string | null = null;
+    let maskBase64: string | null = null;
+    
     try {
       let res: Response | undefined;
       if (mode === 'generate') {
@@ -151,8 +171,7 @@ function AppContent() {
         console.log('🖼️ 画像編集モード開始');
         // 画像編集は/api/editにapplication/json＋base64で送信！
         // まず元画像のアスペクト比を検出してサイズを決定
-        let imageBase64: string | null = null;
-        let actualSize = size; // デフォルトは選択されたサイズ
+        actualSize = size; // デフォルトは選択されたサイズ
         
         // --- canvas生成＆リサイズ描画 ---
         if (uploadImagePreview) {
@@ -164,19 +183,21 @@ function AppContent() {
               const originalHeight = img.height;
               console.log(`📐 元画像サイズ: ${originalWidth}x${originalHeight}`);
               
-              // アスペクト比に基づいてサイズを決定
+              // アスペクト比に基づいて動的にサイズを計算（バックエンドと同じロジック）
               if (originalWidth === originalHeight) {
                 // 正方形の場合
                 actualSize = '1024x1024';
                 console.log('🔲 正方形の画像なので1024x1024で編集');
               } else if (originalWidth > originalHeight) {
-                // 横長の場合
-                actualSize = '1536x1024';
-                console.log('📏 横長の画像なので1536x1024で編集');
+                // 横長の場合：高さを1024に固定し、幅をアスペクト比で計算
+                const newWidth = Math.round(1024 * (originalWidth / originalHeight));
+                actualSize = `${newWidth}x1024`;
+                console.log(`📏 横長の画像なので${actualSize}で編集（元:${originalWidth}x${originalHeight}）`);
               } else {
-                // 縦長の場合
-                actualSize = '1024x1536';
-                console.log('📐 縦長の画像なので1024x1536で編集');
+                // 縦長の場合：幅を1024に固定し、高さをアスペクト比で計算
+                const newHeight = Math.round(1024 * (originalHeight / originalWidth));
+                actualSize = `1024x${newHeight}`;
+                console.log(`📐 縦長の画像なので${actualSize}で編集（元:${originalWidth}x${originalHeight}）`);
               }
               resolve();
             };
@@ -246,34 +267,134 @@ function AppContent() {
           return;
         }
         // マスクもbase64化（マスクは常に送信！canvasがあればOK）
-        let maskBase64: string | null = null;
+        // 💡 重要：マスクcanvasを actualSize と同じサイズにリサイズしてから送信！
         let maskHasContent = false;
         if (canvasRef.current) {
-          const ctx = canvasRef.current.getContext('2d');
-          if (ctx) {
-            const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-            for (let i = 0; i < imageData.data.length; i += 4) {
-              if (imageData.data[i + 3] > 0) { // alpha>0
+          // まず現在のマスクcanvasに内容があるかチェック
+          const currentCtx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+          if (currentCtx) {
+            const currentImageData = currentCtx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+            // 🔍 統一されたマスク検知ロジック：真っ白以外のピクセルがあるかチェック
+            for (let i = 0; i < currentImageData.data.length; i += 4) {
+              const r = currentImageData.data[i];
+              const g = currentImageData.data[i + 1];
+              const b = currentImageData.data[i + 2];
+              const a = currentImageData.data[i + 3];
+              
+              // 完全に透明なピクセルは無視
+              if (a === 0) continue;
+              
+              // 真っ白（255,255,255）でないピクセルがあればマスクありと判定
+              if (r !== 255 || g !== 255 || b !== 255) {
                 maskHasContent = true;
+                console.log(`🖌️ 編集API用マスク検出: RGB(${r},${g},${b})`);
                 break;
               }
             }
           }
-          maskBase64 = await new Promise<string | null>(resolve => canvasRef.current!.toBlob(b => {
-            if (!b) return resolve(null);
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              resolve(base64);
-            };
-            reader.readAsDataURL(b);
-          }, 'image/png'));
+          
+          // マスクを actualSize と同じサイズにリサイズしてからbase64化
+          const [actualWidth, actualHeight] = actualSize.split('x').map(Number);
+          console.log(`🎭 マスクcanvasを ${actualSize} にリサイズして送信`);
+          
+          const resizedMaskCanvas = document.createElement('canvas');
+          resizedMaskCanvas.width = actualWidth;
+          resizedMaskCanvas.height = actualHeight;
+          const resizedCtx = resizedMaskCanvas.getContext('2d', { willReadFrequently: true });
+          
+          if (resizedCtx) {
+            // 元のマスクcanvasを actualSize にリサイズして描画
+            resizedCtx.clearRect(0, 0, actualWidth, actualHeight);
+            resizedCtx.drawImage(canvasRef.current, 0, 0, actualWidth, actualHeight);
+            
+            // 🎨 実験：マスクを逆転してテスト（白→透明、黒→黒）
+            const imageData = resizedCtx.getImageData(0, 0, actualWidth, actualHeight);
+            
+            // === デバッグ用：反転前の状態をログ出力 ===
+            let blackPixels = 0, whitePixels = 0, totalPixels = imageData.data.length / 4;
+            let sampleCount = 0;
+            for (let i = 0; i < imageData.data.length; i += 4) {
+              const r = imageData.data[i];
+              const g = imageData.data[i + 1];
+              const b = imageData.data[i + 2];
+              const brightness = (r + g + b) / 3;
+              if (brightness < 128) {
+                blackPixels++;
+                if (sampleCount < 3) {
+                  console.log(`📝 黒ピクセル発見 at (${(i/4)%actualWidth}, ${Math.floor((i/4)/actualWidth)}) brightness=${brightness} → 黒のまま保持`);
+                  sampleCount++;
+                }
+              } else whitePixels++;
+            }
+            console.log(`🔍 マスク変換前: 黒ピクセル=${blackPixels}, 白ピクセル=${whitePixels}, 総ピクセル=${totalPixels}`);
+            console.log(`📊 白い部分（編集対象予定）の割合: ${(whitePixels/totalPixels*100).toFixed(1)}%`);
+            
+            for (let i = 0; i < imageData.data.length; i += 4) {
+              const r = imageData.data[i];
+              const g = imageData.data[i + 1];
+              const b = imageData.data[i + 2];
+              const brightness = (r + g + b) / 3;
+              
+              if (brightness >= 128) {
+                // 🔥 実験：白い部分→透明に（編集対象）
+                imageData.data[i + 3] = 0; // alpha = 0
+              } else {
+                // 🔥 実験：黒い部分→黒のまま（保持）
+                imageData.data[i] = 0;     // R = 0
+                imageData.data[i + 1] = 0; // G = 0
+                imageData.data[i + 2] = 0; // B = 0
+                imageData.data[i + 3] = 255; // alpha = 255
+              }
+            }
+            resizedCtx.putImageData(imageData, 0, 0);
+            
+            // リサイズ＆反転したマスクcanvasをbase64化
+            maskBase64 = await new Promise<string | null>(resolve => resizedMaskCanvas.toBlob(b => {
+              if (!b) return resolve(null);
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                resolve(base64);
+              };
+              reader.readAsDataURL(b);
+            }, 'image/png'));
+          }
         }
-        // マスクが空の場合は警告を出すが、そのまま送信する（マスク無し編集）
+        // マスクが空の場合は全体編集用の透明マスクを生成
         if (!maskHasContent) {
-          console.log('🎨 マスクが描かれていないため、画像全体を編集対象として送信します');
-          // マスクが無い場合はnullにする
-          maskBase64 = null;
+          console.log('🎨 マスクが描かれていないため、画像全体を編集するための透明マスクを生成');
+          
+          // 完全透明な画像を生成（全体が編集対象）
+          const [actualWidth, actualHeight] = actualSize.split('x').map(Number);
+          const transparentMaskCanvas = document.createElement('canvas');
+          transparentMaskCanvas.width = actualWidth;
+          transparentMaskCanvas.height = actualHeight;
+          const transparentCtx = transparentMaskCanvas.getContext('2d', { willReadFrequently: true });
+          
+          if (transparentCtx) {
+            // 完全透明で塗りつぶし（全体が編集対象）
+            transparentCtx.clearRect(0, 0, actualWidth, actualHeight);
+            // 透明なImageDataを作成
+            const imageData = transparentCtx.createImageData(actualWidth, actualHeight);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+              imageData.data[i] = 0;     // R = 0
+              imageData.data[i + 1] = 0; // G = 0
+              imageData.data[i + 2] = 0; // B = 0
+              imageData.data[i + 3] = 0; // alpha = 0 (完全透明)
+            }
+            transparentCtx.putImageData(imageData, 0, 0);
+            
+            // 透明マスクをbase64化
+            maskBase64 = await new Promise<string | null>(resolve => transparentMaskCanvas.toBlob(b => {
+              if (!b) return resolve(null);
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                resolve(base64);
+              };
+              reader.readAsDataURL(b);
+            }, 'image/png'));
+          }
         } else {
           console.log('🖌️ マスクが描かれているため、指定範囲のみを編集対象として送信します');
         }
@@ -300,14 +421,15 @@ function AppContent() {
         }
         console.log('maskBase64が存在?:', !!maskBase64);
         console.log('🎯 送信予定サイズ:', actualSize, '(元画像のアスペクト比に基づく)');
+        console.log('📤 編集APIに送信: actualSize のみ、size は送信しない');
         // ========== デバッグログここまで ==========
         res = await fetch('/api/edit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt,
-            size, // ユーザー選択サイズ
-            actualSize, // 元画像のアスペクト比に基づくサイズ（バックエンドで優先使用）
+            // 編集モードではactualSizeのみ送信（sizeは送信しない）
+            actualSize, // 元画像のアスペクト比に基づくサイズ
             imageBase64,
             maskBase64
           })
@@ -317,12 +439,62 @@ function AppContent() {
         setLoadingImg(false);
         return;
       }
+      console.log('📡 APIリクエスト送信完了、レスポンス待機中...');
       if (!res) {
+        console.error('❌ APIリクエストが実行されませんでした');
         alert('APIリクエストが実行されなかったよ！');
         setLoadingImg(false);
         return;
       }
-      const data = await res.json();
+      
+      console.log('📨 レスポンス受信:', res.status, res.statusText);
+      
+      // レスポンスbodyを一度だけ読み取り
+      const responseText = await res.text();
+      let data;
+      
+      try {
+        data = JSON.parse(responseText);
+        console.log('📋 レスポンスデータ:', data);
+      } catch (parseError) {
+        console.error('JSONパースエラー:', parseError);
+        console.error('生レスポンステキスト:', responseText);
+        data = { error: responseText };
+      }
+      
+      // 🔍 400エラーの場合は詳細な診断ログを出力
+      if (res.status === 400) {
+        console.error('🚨 400 Bad Request 詳細診断:');
+        console.error('リクエストURL:', res.url);
+        console.error('レスポンスヘッダー:', Array.from(res.headers.entries()));
+        console.error('生レスポンステキスト:', responseText);
+        console.error('パース済みエラーデータ:', data);
+        
+        // 400エラーの詳細分析
+        console.error('❌ 400エラー詳細分析:', {
+          status: res.status,
+          statusText: res.statusText,
+          contentType: res.headers.get('content-type'),
+          errorData: data,
+          requestSize: JSON.stringify({
+            prompt,
+            actualSize,
+            imageBase64: imageBase64 ? `${imageBase64.length} chars` : 'null',
+            maskBase64: maskBase64 ? `${maskBase64.length} chars` : 'null'
+          })
+        });
+      }
+      
+      // 🔍 エラー時の詳細ログ
+      if (!res.ok) {
+        console.error('❌ APIエラー詳細:', {
+          status: res.status,
+          statusText: res.statusText,
+          errorData: data,
+          url: res.url
+        });
+      }
+      
       if (!res.ok) {
         // コンテンツフィルタエラーかどうかをチェック
         if (data.errorType === 'content_filter') {
@@ -349,22 +521,36 @@ function AppContent() {
         setLoadingImg(false);
         return;
       }
+      
+      console.log('✅ APIリクエスト成功！データ処理開始');
       if (data.url) {
+        console.log('🖼️ 新しい画像URL受信:', data.url);
         setImageHistory([data.url, ...imageHistory]);
         setPromptHistory([prompt, ...promptHistory]);
         setSelectedImage(data.url);
       } else if (data.imageUrl) {
+        console.log('🖼️ 新しい画像URL受信(imageUrl):', data.imageUrl);
         setImageHistory([data.imageUrl, ...imageHistory]);
         setPromptHistory([prompt, ...promptHistory]);
         setSelectedImage(data.imageUrl);
       }
       // --- 成功時もbase64画像があれば保存 ---
       if (data.imageBase64) {
+        console.log('💾 base64画像データを保存');
         setLastEditImageBase64(data.imageBase64);
       } else {
         setLastEditImageBase64(null);
       }
       setLastEditError(null);
+      
+      // 🎨 編集完了後の後処理
+      if (mode === 'edit') {
+        console.log('🧹 画像編集完了！マスクをクリアして次の編集に備えます');
+        clearMask(); // マスクを自動クリア
+        // 注意: img2img画像はそのまま保持（編集結果と比較できるように）
+      }
+      
+      console.log('📋 画像リスト更新開始');
       // 画像リストを最新化
       try {
         const resList = await fetch('/api/list');
@@ -373,15 +559,19 @@ function AppContent() {
           if (Array.isArray(listData.urls)) {
             setImageHistory(listData.urls);
             if (listData.urls.length > 0) setSelectedImage(listData.urls[0]);
+            console.log('✅ 画像リスト更新完了');
           }
         }
       } catch (e) {
-        console.error('画像リストの再取得に失敗', e);
+        console.error('⚠️ 画像リストの再取得に失敗', e);
       }
     } catch (e) {
-      console.error('画像生成失敗', e);
+      console.error('❌ 画像生成失敗', e);
+      alert('画像生成でエラーが発生しました: ' + e);
+    } finally {
+      console.log('🏁 generateImage処理完了 - loadingImg状態をfalseに設定');
+      setLoadingImg(false);
     }
-    setLoadingImg(false);
   };
 
   // 画像アップロード時のプレビュー生成
@@ -390,9 +580,33 @@ function AppContent() {
     if (file) {
       const reader = new FileReader();
       reader.onload = ev => {
-        // 画像をsizeセレクトのピクセル数でリサイズしてプレビュー用base64を作る
+        // 元画像のサイズを検出してマスクcanvasサイズを決定
         const img = new window.Image();
         img.onload = () => {
+          const originalWidth = img.width;
+          const originalHeight = img.height;
+          console.log(`📐 元画像サイズ: ${originalWidth}x${originalHeight}`);
+          
+          // アスペクト比に基づいて動的にマスクcanvasサイズを決定（編集時と同じロジック）
+          let maskWidth = 1024, maskHeight = 1024;
+          if (originalWidth === originalHeight) {
+            // 正方形の場合
+            maskWidth = 1024;
+            maskHeight = 1024;
+            console.log('🔲 正方形の画像なのでマスクcanvasを1024x1024で設定');
+          } else if (originalWidth > originalHeight) {
+            // 横長の場合：高さを1024に固定し、幅をアスペクト比で計算
+            maskWidth = Math.round(1024 * (originalWidth / originalHeight));
+            maskHeight = 1024;
+            console.log(`📏 横長の画像なのでマスクcanvasを${maskWidth}x${maskHeight}で設定（元:${originalWidth}x${originalHeight}）`);
+          } else {
+            // 縦長の場合：幅を1024に固定し、高さをアスペクト比で計算
+            maskWidth = 1024;
+            maskHeight = Math.round(1024 * (originalHeight / originalWidth));
+            console.log(`📐 縦長の画像なのでマスクcanvasを${maskWidth}x${maskHeight}で設定（元:${originalWidth}x${originalHeight}）`);
+          }
+          
+          // プレビュー用にsizeセレクトのピクセル数でリサイズ
           const { width, height } = getSizeWH(size);
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = width;
@@ -406,7 +620,9 @@ function AppContent() {
               const r = new FileReader();
               r.onloadend = () => {
                 setUploadImagePreview(r.result as string);
-                setMaskCanvasSize({ width, height });
+                // 実際のアスペクト比に基づいてマスクcanvasサイズを設定
+                setMaskCanvasSize({ width: maskWidth, height: maskHeight });
+                console.log(`🎨 マスクcanvasサイズを${maskWidth}x${maskHeight}に設定完了`);
               };
               r.readAsDataURL(blob);
             }, 'image/png');
@@ -427,16 +643,7 @@ function AppContent() {
     setPrompt(cleaned);
   };
 
-  // マスク描画用canvasの初期化
-  useEffect(() => {
-    if (!uploadImagePreview || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    // 透明で初期化
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.globalAlpha = 1.0;
-  }, [uploadImagePreview]);
+
 
   // マスク描画イベント
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -483,8 +690,10 @@ function AppContent() {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * maskCanvasSize.width;
     const y = ((e.clientY - rect.top) / rect.height) * maskCanvasSize.height;
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
+    // 🎨 ユーザビリティ改善：黒いペンで編集範囲を描画（わかりやすい）
+    ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = 'black';
     ctx.globalAlpha = 1.0;
     ctx.beginPath();
@@ -496,9 +705,18 @@ function AppContent() {
   // マスククリア
   const clearMask = () => {
     if (!canvasRef.current) return;
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
+    
+    // 🎨 修正: canvasを完全に透明にクリア（背景画像が見えるように）
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    
+    // ついでにコンポジット設定もリセット
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1.0;
+    
+    console.log('🧹 マスクをクリアしました（透明化）');
+    
     // マスククリア後にチェック
     checkMaskContent();
   };
@@ -507,8 +725,12 @@ function AppContent() {
   const clearUploadImage = () => {
     setUploadImagePreview('');
     if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        // 🎨 修正: canvasを透明でリセット（背景が見えるように）
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        ctx.globalCompositeOperation = 'source-over';
+      }
     }
     // 画像クリア後にマスクもリセット
     setHasMaskContent(false);
@@ -519,11 +741,40 @@ function AppContent() {
     // ここは「canvasに元画像を描画しない」＝マスク専用canvasにする
     if (!uploadImagePreview || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
-    // 透明で初期化（マスクだけ描画）
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.globalAlpha = 1.0;
+    
+    // 💡 既存のマスク内容を直接チェック（統一されたロジック）
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let hasExistingMask = false;
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      const r = imageData.data[i];
+      const g = imageData.data[i + 1];
+      const b = imageData.data[i + 2];
+      const a = imageData.data[i + 3];
+      
+      // 完全に透明なピクセルは無視
+      if (a === 0) continue;
+      
+      // 真っ白（255,255,255）でないピクセルがあればマスクありと判定
+      if (r !== 255 || g !== 255 || b !== 255) {
+        hasExistingMask = true;
+        console.log(`🖌️ useEffect: 既存マスク検出 RGB(${r},${g},${b})`);
+        break;
+      }
+    }
+    
+    if (!hasExistingMask) {
+      // マスクが無い場合は透明で初期化（背景画像が見えるように）
+      console.log('🎨 新しい画像設定：マスクキャンバスを透明で初期化');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+    } else {
+      // マスクがある場合は既存の描画を保持
+      console.log('🖌️ 新しい画像設定：既存のマスクを保持');
+    }
+    
     // canvas初期化後にマスクチェック
     checkMaskContent();
   }, [uploadImagePreview]);
@@ -580,7 +831,7 @@ function AppContent() {
       <div className="container" style={{ display: 'flex', flexDirection: 'row', minHeight: '100vh', width: '100vw', boxSizing: 'border-box' }}>
         <div className="left" style={{ minWidth: 0, maxWidth: '100%', width: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
           {/* モード切替ボタン */}
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #eee', background: '#f7f7fa' }}>
+          <div style={{ padding: '22px 16px 12px 16px', borderBottom: '1px solid #eee', background: '#f7f7fa' }}>
             <button
               onClick={() => setMode('generate')}
               style={{
@@ -644,6 +895,24 @@ function AppContent() {
                     <button onClick={clearMask}>マスククリア</button>
                     <button onClick={clearUploadImage}>img2img選択解除</button>
                   </div>
+                  {/* マスクの使い方ガイド */}
+                  <div style={{ 
+                    marginTop: '12px', 
+                    padding: '12px', 
+                    backgroundColor: '#e8f4fd', 
+                    borderRadius: '8px',
+                    border: '1px solid #b3d9ff',
+                    fontSize: '14px'
+                  }}>
+                    <div style={{ fontWeight: 'bold', color: '#0066cc', marginBottom: '6px' }}>
+                      💡 マスクの使い方
+                    </div>
+                    <div style={{ color: '#333', lineHeight: '1.4' }}>
+                      <strong>黒で塗った部分</strong>がプロンプトに従って編集されます<br/>
+                      <strong>それ以外の部分</strong>はそのまま保持されます<br/>
+                      変更したい部分をマウスでドラッグして黒く塗ってください✨
+                    </div>
+                  </div>
                 </div>
                 {/* プロンプト入力欄と編集ボタンは常に表示！ */}
                 <textarea
@@ -687,7 +956,8 @@ function AppContent() {
                     fontWeight: 'bold',
                     cursor: loadingImg ? 'not-allowed' : 'pointer',
                     opacity: loadingImg ? 0.6 : 1,
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    marginTop: '10px'
                   }}
                 >
                   {loadingImg 
@@ -706,18 +976,50 @@ function AppContent() {
                   <>
                     {/* ベース画像（大きいプレビュー） */}
                     <img
-                      src={mode === 'edit' && uploadImagePreview ? uploadImagePreview : selectedImage}
+                      src={selectedImage}
                       alt="プレビュー"
                       crossOrigin="anonymous"
                       style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', left: 0, top: 0, zIndex: 1, borderRadius: 12, background: '#fff' }}
                     />
+                    {/* 編集モード時のimg2img元画像オーバーレイ（小さく表示） */}
+                    {mode === 'edit' && uploadImagePreview && uploadImagePreview !== selectedImage && (
+                      <div style={{ 
+                        position: 'absolute', 
+                        top: '8px', 
+                        left: '8px', 
+                        zIndex: 4, 
+                        background: 'rgba(255,255,255,0.9)', 
+                        borderRadius: '8px', 
+                        padding: '4px',
+                        border: '1px solid #ccc'
+                      }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '2px' }}>元画像:</div>
+                        <img
+                          src={uploadImagePreview}
+                          alt="元画像"
+                          crossOrigin="anonymous"
+                          style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px' }}
+                        />
+                      </div>
+                    )}
                     {/* マスクcanvas（上レイヤー） - 編集モードかつimg2img画像がある時のみ */}
                     {mode === 'edit' && uploadImagePreview && (
                       <canvas
                         ref={canvasRef}
                         width={maskCanvasSize.width}
                         height={maskCanvasSize.height}
-                        style={{ width: '100%', height: '100%', position: 'absolute', left: 0, top: 0, pointerEvents: 'auto', zIndex: 2, borderRadius: 12, background: 'transparent', touchAction: 'none' }}
+                        style={{ 
+                          width: '100%', 
+                          height: '100%', 
+                          position: 'absolute', 
+                          left: 0, 
+                          top: 0, 
+                          pointerEvents: 'auto', 
+                          zIndex: 2, 
+                          borderRadius: 12, 
+                          background: 'transparent', // 背景を透明に戻す
+                          touchAction: 'none' 
+                        }}
                         onMouseDown={handleCanvasMouseDown}
                         onMouseUp={handleCanvasMouseUp}
                         onMouseMove={handleCanvasMouseMove}
@@ -785,8 +1087,27 @@ function AppContent() {
                   style={{ width: 80, height: 80, objectFit: 'cover', border: selectedImage === url ? '2px solid #f0a' : '1px solid #ccc', borderRadius: 8, cursor: 'pointer' }}
                   onClick={() => setSelectedImage(url)}
                 />
-                <button className="use-as-img2img" style={{ position: 'absolute', left: 0, bottom: 0, fontSize: 10, padding: '2px 4px', background: '#fff8', border: 'none', borderRadius: 4, cursor: 'pointer' }} onClick={() => {
+                <button className="use-as-img2img" style={{ 
+                  position: 'absolute', 
+                  left: 0, 
+                  bottom: 0, 
+                  fontSize: 10, 
+                  padding: '2px 4px', 
+                  background: uploadImagePreview === url ? '#ff4444' : '#fff8', 
+                  color: uploadImagePreview === url ? '#fff' : '#000',
+                  border: 'none', 
+                  borderRadius: 4, 
+                  cursor: 'pointer',
+                  fontWeight: uploadImagePreview === url ? 'bold' : 'normal'
+                }} onClick={() => {
+                  // マスクが描かれている場合は確認
+                  if (hasMaskContent && !window.confirm('マスクが描かれています。新しい画像を設定するとマスクがクリアされますが、よろしいですか？')) {
+                    return;
+                  }
                   setUploadImagePreview(url);
+                  // 🎯 img2imgボタンを押したらプレビューも自動変更！
+                  setSelectedImage(url);
+                  console.log('🎨 img2img対象を設定＆プレビューも変更:', url);
                 }}>img2img</button>
                 <button className="delete-thumb" style={{ position: 'absolute', right: 0, top: 0, fontSize: 12, padding: '2px 4px', background: '#f44', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }} onClick={async () => {
                   if (!window.confirm('この画像を削除する？')) return;
