@@ -58,7 +58,7 @@
 }
 .top {
   flex: 0 0 320px;
-  padding: 16px;
+  padding: 16px 16px 16px 16px;
   box-sizing: border-box;
   border-bottom: 1px solid #eee;
 }
