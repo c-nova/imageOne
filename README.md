@@ -6,6 +6,8 @@ Azure OpenAI GPT-4oとGPT-image-1を使った、最新のAI画像生成・編集
 
 ### 🎭 画像生成モード
 - **GPT-4oによる推奨プロンプト生成**: 簡単な入力から詳細で効果的なプロンプトを自動生成
+- **📸 プロフェッショナルカメラ設定**: 焦点距離・F値・色温度の詳細設定で写真品質を向上
+- **🎨 多様な画像スタイル**: 超精細写真・アニメ・3DCG・油絵など14種類のスタイルから選択
 - **多サイズ対応**: 1024×1024、1536×1024、1024×1536の3つのサイズに対応
 - **高品質生成**: Azure OpenAI最新モデルによる高解像度画像生成
 
@@ -77,6 +79,27 @@ infra/
 - **Content Filter** - コンテンツポリシー適用
 
 ## 🎯 主要実装機能
+
+### 📸 プロフェッショナルカメラ設定システム (NEW!)
+```typescript
+// カメラ設定による高品質プロンプト生成
+const buildCameraPrompt = (basePrompt: string): string => {
+  const cameraSettings = [
+    `shot with ${focalLength}mm lens`,      // 10mm-200mm
+    `aperture f/${aperture}`,               // f/2-f/10  
+    `${colorTemp}K color temperature`       // 2000K-10000K
+  ];
+  
+  const styleSuffix = getStyleSuffix(); // 14種類のスタイルから選択
+  return `${basePrompt}, ${cameraSettings.join(', ')}${styleSuffix}`;
+};
+```
+
+**対応画像スタイル:**
+- 📸 **写真系**: Ultra Realistic Photo, Casual Snapshot, Portrait, Cinematic
+- 🎨 **CG系**: 3D Rendered, Digital Art, Concept Art, Photorealistic Render
+- 🎭 **アニメ系**: Anime Style, Manga, Studio Ghibli Style, Character Design
+- 🖼️ **アート系**: Oil Painting, Watercolor, Sketch Drawing, Impressionist
 
 ### 🎨 高度なマスク編集システム
 ```typescript
@@ -225,6 +248,13 @@ azd up
 - **動的サイズ調整**: 画面サイズに応じた最適表示
 
 ## 🚀 最新アップデート
+
+### v2.1.0 - プロフェッショナルカメラ設定追加 (2025年5月)
+- 📸 **カメラ設定システム**: 焦点距離・F値・色温度の詳細調整機能
+- 🎨 **14種類の画像スタイル**: 写真・CG・アニメ・アート系の豊富なスタイル選択
+- 🎯 **スタイル別最適化**: 各スタイルに応じた専用プロンプト生成
+- ✨ **プロフェッショナル品質**: カメラ設定による写真レベルの画像生成
+- 🔧 **直感的UI**: ドロップダウンとスライダーによる簡単操作
 
 ### v2.0.0 - 2024年12月対応
 - ✨ **GPT-image-1対応**: 最新画像生成モデルへの移行

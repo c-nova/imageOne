@@ -54,6 +54,12 @@ function AppContent() {
   const [showContentFilterError, setShowContentFilterError] = useState<{show: boolean, message: string}>({show: false, message: ''});
   // マスクが描かれているかどうかを検出する state
   const [hasMaskContent, setHasMaskContent] = useState<boolean>(false);
+  
+  // カメラ設定用の状態変数 📸
+  const [focalLength, setFocalLength] = useState<number>(50); // 10mm-200mm
+  const [aperture, setAperture] = useState<number>(2.8); // f/2-f/10
+  const [colorTemp, setColorTemp] = useState<number>(5500); // 2000K-10000K
+  const [imageStyle, setImageStyle] = useState<string>('photo'); // 画像スタイル
 
   // sizeセレクトの値からwidth/heightを取得する関数
   const getSizeWH = (sizeStr: string) => {
@@ -93,6 +99,62 @@ function AppContent() {
     }
     console.log('🎨 マスクなし: すべてのピクセルが白(255,255,255)です');
     setHasMaskContent(false);
+  };
+
+  // カメラ設定をプロンプトに統合する関数 📸
+  const buildCameraPrompt = (basePrompt: string): string => {
+    const cameraSettings = [
+      `shot with ${focalLength}mm lens`,
+      `aperture f/${aperture}`,
+      `${colorTemp}K color temperature`
+    ];
+    
+    // 画像スタイルに応じた suffix を決定
+    const getStyleSuffix = () => {
+      switch (imageStyle) {
+        case 'photo':
+          return ', professional photography';
+        case 'snapshot':
+          return ', casual snapshot photography';
+        case 'portrait':
+          return ', professional portrait photography';
+        case 'cinematic':
+          return ', cinematic photography, film grain';
+        case '3dcg':
+          return ', 3D rendered, high quality CGI';
+        case 'digital':
+          return ', digital art, high resolution';
+        case 'concept':
+          return ', concept art, detailed illustration';
+        case 'photorealistic':
+          return ', photorealistic rendering, raytracing';
+        case 'anime':
+          return ', anime style, cel shading';
+        case 'manga':
+          return ', manga illustration, black and white';
+        case 'ghibli':
+          return ', Studio Ghibli style, hand-drawn animation';
+        case 'character':
+          return ', character design, illustration';
+        case 'oil':
+          return ', oil painting, canvas texture';
+        case 'watercolor':
+          return ', watercolor painting, soft colors';
+        case 'sketch':
+          return ', pencil sketch, hand-drawn';
+        case 'impressionist':
+          return ', impressionist painting, visible brushstrokes';
+        default:
+          return ', professional photography';
+      }
+    };
+    
+    const styleSuffix = getStyleSuffix();
+    const cameraString = cameraSettings.join(', ');
+    
+    return basePrompt.trim() 
+      ? `${basePrompt}, ${cameraString}${styleSuffix}`
+      : `${cameraString}${styleSuffix}`;
   };
 
   // useEffectなどのHooksはここで全部呼ぶ！
@@ -138,6 +200,7 @@ function AppContent() {
       setLoadingRec(false);
     }
   };
+  
   // Generate image and update histories
   // 画像生成・img2img・マスク送信（モードごとに送信方式を分岐！）
   const generateImage = async () => {
@@ -163,7 +226,7 @@ function AppContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt,
+            prompt: buildCameraPrompt(prompt), // 📸 カメラ設定を組み込んだプロンプト
             size
           })
         });
@@ -427,7 +490,7 @@ function AppContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt,
+            prompt: buildCameraPrompt(prompt), // 📸 カメラ設定を組み込んだプロンプト
             // 編集モードではactualSizeのみ送信（sizeは送信しない）
             actualSize, // 元画像のアスペクト比に基づくサイズ
             imageBase64,
@@ -881,6 +944,121 @@ function AppContent() {
                   <option value="1536x1024">1536 × 1024</option>
                   <option value="1024x1536">1024 × 1536</option>
                 </select>
+                
+                {/* 📸 カメラ設定UI */}
+                <div className="camera-settings" style={{ 
+                  margin: '16px 0', 
+                  padding: '16px', 
+                  background: '#f8f9fa', 
+                  borderRadius: '8px',
+                  border: '1px solid #e0e0e0'
+                }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#333', fontWeight: 'bold' }}>
+                    📸 カメラ設定 (プロフェッショナル写真パラメータ)
+                  </h4>
+                  
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {/* 画像スタイル選択 */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        🎨 画像スタイル
+                      </label>
+                      <select 
+                        value={imageStyle} 
+                        onChange={e => setImageStyle(e.target.value)}
+                        style={{ 
+                          width: '100%', 
+                          padding: '4px 8px', 
+                          borderRadius: '4px', 
+                          border: '1px solid #ccc',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <optgroup label="📸 写真系">
+                          <option value="photo">Ultra Realistic Photo (超精細な写真調)</option>
+                          <option value="snapshot">Casual Snapshot (スナップ写真調)</option>
+                          <option value="portrait">Portrait Photography (ポートレート写真)</option>
+                          <option value="cinematic">Cinematic Photography (映画的写真)</option>
+                        </optgroup>
+                        <optgroup label="🎨 CG・デジタルアート系">
+                          <option value="3dcg">3D Rendered (3D CG調)</option>
+                          <option value="digital">Digital Art (デジタルアート)</option>
+                          <option value="concept">Concept Art (コンセプトアート)</option>
+                          <option value="photorealistic">Photorealistic Render (フォトリアルレンダー)</option>
+                        </optgroup>
+                        <optgroup label="🎭 アニメ・イラスト系">
+                          <option value="anime">Anime Style (アニメ絵調)</option>
+                          <option value="manga">Manga Illustration (マンガイラスト)</option>
+                          <option value="ghibli">Studio Ghibli Style (ジブリ風)</option>
+                          <option value="character">Character Design (キャラクターデザイン)</option>
+                        </optgroup>
+                        <optgroup label="🖼️ アート系">
+                          <option value="oil">Oil Painting (油絵調)</option>
+                          <option value="watercolor">Watercolor (水彩画調)</option>
+                          <option value="sketch">Sketch Drawing (スケッチ調)</option>
+                          <option value="impressionist">Impressionist (印象派風)</option>
+                        </optgroup>
+                      </select>
+                    </div>
+                    
+                    {/* 焦点距離スライダー */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        焦点距離: {focalLength}mm
+                      </label>
+                      <input
+                        type="range"
+                        min="10"
+                        max="200"
+                        value={focalLength}
+                        onChange={e => setFocalLength(Number(e.target.value))}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}>
+                        10mm (超広角) ← → 200mm (望遠)
+                      </div>
+                    </div>
+                    
+                    {/* F値スライダー */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        絞り値 (F値): f/{aperture}
+                      </label>
+                      <input
+                        type="range"
+                        min="2"
+                        max="10"
+                        step="0.1"
+                        value={aperture}
+                        onChange={e => setAperture(Number(e.target.value))}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}>
+                        f/2 (ボケ大) ← → f/10 (パンフォーカス)
+                      </div>
+                    </div>
+                    
+                    {/* 色温度スライダー */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        色温度: {colorTemp}K
+                      </label>
+                      <input
+                        type="range"
+                        min="2000"
+                        max="10000"
+                        step="100"
+                        value={colorTemp}
+                        onChange={e => setColorTemp(Number(e.target.value))}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}>
+                        2000K (暖色・夕焼け) ← → 10000K (寒色・青空)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
                 <button onClick={generateImage} disabled={loadingImg}>画像生成</button>
                 {loadingImg && <div className="loading-bar"></div>}
               </>
