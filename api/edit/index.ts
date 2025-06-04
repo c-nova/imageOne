@@ -4,6 +4,8 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 import { v4 as uuidv4 } from "uuid";
 import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters } from "@azure/storage-blob";
+import { getUserFromRequest, generateUserBlobPath, maskUserInfo } from "../shared/auth";
+import { savePromptHistory, PromptHistoryItem } from "../shared/cosmos";
 
 const credential = new DefaultAzureCredential();
 const kvName = process.env.KeyVaultName!;
@@ -16,8 +18,25 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     return;
   }
 
+  // ユーザー認証の確認
+  let userInfo;
+  try {
+    userInfo = await getUserFromRequest(req);
+    context.log('認証済みユーザー:', maskUserInfo(userInfo));
+  } catch (error: any) {
+    context.log.error('認証エラー:', error.message);
+    context.res = { 
+      status: 401, 
+      body: { 
+        error: "認証が必要です",
+        message: "有効なアクセストークンを提供してください。"
+      } 
+    };
+    return;
+  }
+
   // --- JSONで受信 ---
-  const { prompt, size, actualSize, imageBase64, maskBase64 } = req.body || {};
+  const { prompt, size, actualSize, imageBase64, maskBase64, originalPrompt, cameraSettings } = req.body || {};
   if (!imageBase64) {
     context.res = { status: 400, body: { error: "画像編集にはimageBase64が必須だよ！" } };
     return;
@@ -25,6 +44,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
 
   // 編集モードでは actualSize のみを使用（size は無視）
   const usedSize = actualSize || "1024x1024"; // デフォルト値
+  const startTime = Date.now(); // 処理時間計測開始
   
   context.log(`🎯 編集リクエスト受信詳細:`);
   context.log(`  - prompt: ${prompt}`);
@@ -126,9 +146,12 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
       imageBase64Data = b64;
     }
     
-    // --- Blob Storageへの保存処理 ---
-    const outputBlobName = `edit-${uuidv4()}.png`;
-    const outputContainerName = "generated-images";
+    // --- ユーザーごとのBlob Storageへの保存処理 ---
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const outputBlobName = `edited-${timestamp}-${uuidv4().slice(0, 8)}.png`;
+    const userBlobPath = generateUserBlobPath(userInfo.userId, outputBlobName);
+    const outputContainerName = "user-images";
+    
     const outputBlobServiceClient = new BlobServiceClient(
       `https://${process.env.STORAGE_ACCOUNT_NAME}.blob.core.windows.net`,
       credential
@@ -137,10 +160,28 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     await outputContainerClient.createIfNotExists();
     
     const imageDataBuffer = Buffer.from(imageBase64Data, 'base64');
-    const outputBlobClient = outputContainerClient.getBlockBlobClient(outputBlobName);
+    const outputBlobClient = outputContainerClient.getBlockBlobClient(userBlobPath);
+    
+    // ユーザー情報と編集情報をBlobメタデータに追加
+    // メタデータヘッダー用にプロンプトをクリーンアップ（改行や特殊文字を削除）
+    const cleanPrompt = (prompt || 'no-prompt')
+      .replace(/[\r\n\t]/g, ' ')  // 改行、タブを空白に変換
+      .replace(/[^\x20-\x7E]/g, '') // ASCII印刷可能文字以外を削除
+      .substring(0, 100)
+      .trim();
+    
     await outputBlobClient.uploadData(imageDataBuffer, {
-      blobHTTPHeaders: { blobContentType: "image/png" }
+      blobHTTPHeaders: { blobContentType: "image/png" },
+      metadata: {
+        userId: userInfo.userId,
+        prompt: cleanPrompt,
+        editedAt: new Date().toISOString(),
+        originalSize: usedSize,
+        operationType: 'edit'
+      }
     });
+    
+    context.log(`ユーザー ${maskUserInfo(userInfo).userId} の編集画像を保存: ${userBlobPath}`);
     
     // SASトークン付きURLを生成（プライベートコンテナ対応）
     const now = new Date();
@@ -153,7 +194,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     
     const sas = generateBlobSASQueryParameters({
       containerName: outputContainerName,
-      blobName: outputBlobName,
+      blobName: userBlobPath,
       permissions: BlobSASPermissions.parse("r"),
       startsOn: now,
       expiresOn: expiry,
@@ -161,6 +202,34 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     const outputBlobUrl = `${outputBlobClient.url}?${sas}`;
     
     context.log(`編集画像をBlob Storageに保存しました: ${outputBlobUrl}`);
+
+    // --- プロンプト履歴をCosmos DBに保存 ---
+    try {
+      const processingTime = Date.now() - startTime;
+      const historyItem: PromptHistoryItem = {
+        id: uuidv4(),
+        userId: userInfo.userId,
+        prompt: prompt || 'image-edit-no-prompt',
+        originalPrompt: originalPrompt || prompt || 'image-edit',
+        cameraSettings: cameraSettings,
+        imageUrl: outputBlobUrl,
+        imageBlobPath: userBlobPath,
+        operationType: 'edit',
+        size: usedSize,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          userAgent: req.headers['user-agent'],
+          processingTime: processingTime,
+          hasMask: !!maskBase64
+        }
+      };
+      
+      await savePromptHistory(historyItem);
+      context.log(`編集履歴を保存しました: ${historyItem.id}`);
+    } catch (historyError: any) {
+      // 履歴保存に失敗しても画像編集は成功として返す
+      context.log.warn('編集履歴の保存に失敗しました:', historyError.message);
+    }
 
     context.res = {
       status: 200,

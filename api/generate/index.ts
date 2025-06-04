@@ -3,6 +3,8 @@ import { SecretClient } from "@azure/keyvault-secrets";
 import { AzureOpenAI } from "openai";
 import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters } from "@azure/storage-blob";
 import { v4 as uuidv4 } from "uuid";
+import { getUserFromRequest, generateUserBlobPath, maskUserInfo } from "../shared/auth";
+import { savePromptHistory, PromptHistoryItem } from "../shared/cosmos";
 
 const credential = new DefaultAzureCredential();
 const kvName = process.env.KeyVaultName!;
@@ -32,9 +34,31 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     context.res = { status: 400, body: { error: "application/jsonで送ってね！" } };
     return;
   }
+
+  // ユーザー認証の確認
+  let userInfo;
+  try {
+    userInfo = await getUserFromRequest(req);
+    context.log('認証済みユーザー:', maskUserInfo(userInfo));
+  } catch (error: any) {
+    context.log.error('認証エラー:', error.message);
+    context.res = { 
+      status: 401, 
+      body: { 
+        error: "認証が必要です",
+        message: "有効なアクセストークンを提供してください。"
+      } 
+    };
+    return;
+  }
+
   const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
   const prompt = body.prompt;
+  const originalPrompt = body.originalPrompt || prompt; // フロントエンドから送信される元のプロンプト
+  const cameraSettings = body.cameraSettings; // カメラ設定情報
   const sizeParam = body.size || "1024x1024";
+  
+  const startTime = Date.now(); // 処理時間計測開始
   try {
     const client = await getOpenAIClient();
     const generateParams: any = {
@@ -50,20 +74,41 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
       context.res = { status: 500, body: { error: '画像生成に失敗しました。' } };
       return;
     }
-    // --- Blob Storageへの保存処理（Managed Identity/MSIで直接アップロード！） ---
-    const outputBlobName = `output-${uuidv4()}.png`;
-    const outputContainerName = "generated-images";
+    // --- ユーザーごとのBlob Storageへの保存処理（Managed Identity/MSI） ---
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const outputBlobName = `generated-${timestamp}-${uuidv4().slice(0, 8)}.png`;
+    const userBlobPath = generateUserBlobPath(userInfo.userId, outputBlobName);
+    const outputContainerName = "user-images";
+    
     const outputBlobServiceClient = new BlobServiceClient(
       `https://${process.env.STORAGE_ACCOUNT_NAME}.blob.core.windows.net`,
       credential
     );
     const outputContainerClient = outputBlobServiceClient.getContainerClient(outputContainerName);
     await outputContainerClient.createIfNotExists();
+    
     const imageBuffer = Buffer.from(b64, 'base64');
-    const outputBlobClient = outputContainerClient.getBlockBlobClient(outputBlobName);
+    const outputBlobClient = outputContainerClient.getBlockBlobClient(userBlobPath);
+    
+    // ユーザー情報をBlobメタデータに追加（セキュリティ考慮）
+    // メタデータヘッダー用にプロンプトをクリーンアップ（改行や特殊文字を削除）
+    const cleanPrompt = prompt
+      .replace(/[\r\n\t]/g, ' ')  // 改行、タブを空白に変換
+      .replace(/[^\x20-\x7E]/g, '') // ASCII印刷可能文字以外を削除
+      .substring(0, 100)
+      .trim();
+    
     await outputBlobClient.uploadData(imageBuffer, {
-      blobHTTPHeaders: { blobContentType: "image/png" }
+      blobHTTPHeaders: { blobContentType: "image/png" },
+      metadata: {
+        userId: userInfo.userId,
+        prompt: cleanPrompt,
+        generatedAt: new Date().toISOString(),
+        size: sizeParam
+      }
     });
+    
+    context.log(`ユーザー ${maskUserInfo(userInfo).userId} の画像を保存: ${userBlobPath}`);
     
     // SASトークン付きURLを生成（プライベートコンテナ対応）
     const now = new Date();
@@ -76,7 +121,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     
     const sas = generateBlobSASQueryParameters({
       containerName: outputContainerName,
-      blobName: outputBlobName,
+      blobName: userBlobPath,
       permissions: BlobSASPermissions.parse("r"),
       startsOn: now,
       expiresOn: expiry,
@@ -84,6 +129,34 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     const outputBlobUrl = `${outputBlobClient.url}?${sas}`;
     
     context.log(`画像をBlob Storageに保存しました: ${outputBlobUrl}`);
+    
+    // --- プロンプト履歴をCosmos DBに保存 ---
+    try {
+      const processingTime = Date.now() - startTime;
+      const historyItem: PromptHistoryItem = {
+        id: uuidv4(),
+        userId: userInfo.userId,
+        prompt: prompt,
+        originalPrompt: originalPrompt,
+        cameraSettings: cameraSettings,
+        imageUrl: outputBlobUrl,
+        imageBlobPath: userBlobPath,
+        operationType: 'generate',
+        size: sizeParam,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          userAgent: req.headers['user-agent'],
+          processingTime: processingTime
+        }
+      };
+      
+      await savePromptHistory(historyItem);
+      context.log(`プロンプト履歴を保存しました: ${historyItem.id}`);
+    } catch (historyError: any) {
+      // 履歴保存に失敗しても画像生成は成功として返す
+      context.log.warn('プロンプト履歴の保存に失敗しました:', historyError.message);
+    }
+    
     context.res = {
       status: 200,
       body: {

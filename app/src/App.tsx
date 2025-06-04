@@ -1,8 +1,32 @@
-import React, { useState, useEffect, ChangeEvent, useRef } from 'react';
+import React, { useState, useEffect, ChangeEvent, useRef, useCallback } from 'react';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { msalConfig } from './msalConfig';
 import './App.css';
+
+// 💾 ヒストリーアイテムの型定義
+interface PromptHistoryItem {
+  id: string;
+  userId: string;
+  prompt: string;
+  originalPrompt: string;
+  cameraSettings: {
+    focalLength: number;
+    aperture: number;
+    colorTemp: number;
+    imageStyle: string;
+  };
+  imageUrl: string;
+  imageBlobPath: string;
+  operationType: 'generate' | 'edit';
+  size: string;
+  timestamp: string;
+  metadata: {
+    userAgent?: string;
+    processingTime?: number;
+    [key: string]: any;
+  };
+}
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -43,9 +67,138 @@ function AppContent() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState(false);
   const [mode, setMode] = useState<'generate' | 'edit'>('generate');
+  
+  // 💾 ヒストリー関連の新しいstate
+  const [userHistory, setUserHistory] = useState<PromptHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [historyStats, setHistoryStats] = useState<{totalItems: number, lastGenerated?: string} | null>(null);
+  
   // 認証状態
   const isAuthenticated = useIsAuthenticated();
   const { instance } = useMsal();
+  
+  // 認証トークンを取得する関数（useCallbackでメモ化）
+  const getAuthToken = useCallback(async (): Promise<string | null> => {
+    if (!isAuthenticated) return null;
+    
+    try {
+      const accounts = instance.getAllAccounts();
+      if (accounts.length === 0) return null;
+      
+      const tokenResponse = await instance.acquireTokenSilent({
+        scopes: [`${process.env.REACT_APP_CLIENT_ID}/.default`],
+        account: accounts[0]
+      });
+      
+      return tokenResponse.accessToken;
+    } catch (error) {
+      console.error('トークン取得エラー:', error);
+      return null;
+    }
+  }, [isAuthenticated, instance]);
+
+  // 💾 ヒストリーを取得する関数（useCallbackでメモ化）
+  const fetchUserHistory = useCallback(async (limit: number = 20, offset: number = 0) => {
+    if (!isAuthenticated) return;
+    
+    setHistoryLoading(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        console.warn('トークンがないためヒストリー取得をスキップ');
+        return;
+      }
+      
+      const res = await fetch(`/api/history?limit=${limit}&offset=${offset}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log('📜 ヒストリー取得成功:', data);
+        
+        if (offset === 0) {
+          // 新規取得の場合は全て置き換え
+          setUserHistory(data.history || []);
+        } else {
+          // 追加読み込みの場合は追加
+          setUserHistory(prev => [...prev, ...(data.history || [])]);
+        }
+        
+        setHistoryStats(data.stats || null);
+      } else {
+        const errorText = await res.text();
+        console.error('ヒストリー取得失敗:', res.status, errorText);
+        
+        // Cosmos DBが利用できない場合のメッセージ
+        if (res.status === 500 && errorText.includes('Cosmos')) {
+          console.warn('Cosmos DBが利用できません。ヒストリー機能は一時的に無効です。');
+          setUserHistory([]);
+          setHistoryStats(null);
+        }
+      }
+    } catch (error) {
+      console.error('ヒストリー取得エラー:', error);
+      // ネットワークエラーの場合は履歴をクリア
+      setUserHistory([]);
+      setHistoryStats(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [isAuthenticated, getAuthToken]);
+
+  // 💾 ヒストリーアイテムを削除する関数
+  const deleteHistoryItem = async (historyId: string) => {
+    if (!isAuthenticated) return;
+    
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        alert('認証トークンの取得に失敗しました。');
+        return;
+      }
+      
+      const res = await fetch(`/api/history/${historyId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (res.ok) {
+        console.log('🗑️ ヒストリーアイテム削除成功:', historyId);
+        // ローカル状態からも削除
+        setUserHistory(prev => prev.filter(item => item.id !== historyId));
+        // 統計も更新
+        if (historyStats) {
+          setHistoryStats({
+            ...historyStats,
+            totalItems: Math.max(0, historyStats.totalItems - 1)
+          });
+        }
+      } else {
+        console.error('ヒストリーアイテム削除失敗:', await res.text());
+        alert('履歴の削除に失敗しました。');
+      }
+    } catch (error) {
+      console.error('ヒストリーアイテム削除エラー:', error);
+      alert('履歴の削除中にエラーが発生しました。');
+    }
+  };
+
+  // 💾 認証状態変化時にヒストリーを自動取得
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchUserHistory();
+    } else {
+      setUserHistory([]);
+      setHistoryStats(null);
+    }
+  }, [isAuthenticated, fetchUserHistory]);
+  
   const [lastEditImageBase64, setLastEditImageBase64] = useState<string | null>(null);
   const [lastEditError, setLastEditError] = useState<any>(null);
   // マスクcanvasサイズをstateで管理
@@ -221,12 +374,34 @@ function AppContent() {
     try {
       let res: Response | undefined;
       if (mode === 'generate') {
+        // 認証チェック
+        if (!isAuthenticated) {
+          alert('画像生成にはログインが必要です');
+          return;
+        }
+        
+        const token = await getAuthToken();
+        if (!token) {
+          alert('認証トークンの取得に失敗しました。再ログインしてください。');
+          return;
+        }
+        
         // 画像生成は/api/generateにapplication/jsonで送信！
         res = await fetch('/api/generate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
           body: JSON.stringify({
             prompt: buildCameraPrompt(prompt), // 📸 カメラ設定を組み込んだプロンプト
+            originalPrompt: prompt, // 元のユーザー入力プロンプト
+            cameraSettings: {
+              focalLength,
+              aperture,
+              colorTemp,
+              imageStyle
+            },
             size
           })
         });
@@ -486,11 +661,34 @@ function AppContent() {
         console.log('🎯 送信予定サイズ:', actualSize, '(元画像のアスペクト比に基づく)');
         console.log('📤 編集APIに送信: actualSize のみ、size は送信しない');
         // ========== デバッグログここまで ==========
+        
+        // 認証チェック
+        if (!isAuthenticated) {
+          alert('画像編集にはログインが必要です');
+          return;
+        }
+        
+        const token = await getAuthToken();
+        if (!token) {
+          alert('認証トークンの取得に失敗しました。再ログインしてください。');
+          return;
+        }
+        
         res = await fetch('/api/edit', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
           body: JSON.stringify({
             prompt: buildCameraPrompt(prompt), // 📸 カメラ設定を組み込んだプロンプト
+            originalPrompt: prompt, // 元のユーザー入力プロンプト
+            cameraSettings: {
+              focalLength,
+              aperture,
+              colorTemp,
+              imageStyle
+            },
             // 編集モードではactualSizeのみ送信（sizeは送信しない）
             actualSize, // 元画像のアスペクト比に基づくサイズ
             imageBase64,
@@ -586,16 +784,26 @@ function AppContent() {
       }
       
       console.log('✅ APIリクエスト成功！データ処理開始');
-      if (data.url) {
-        console.log('🖼️ 新しい画像URL受信:', data.url);
-        setImageHistory([data.url, ...imageHistory]);
+      // 🔧 編集APIと生成APIの両方に対応（editはimageUrl、generateはurl）
+      const imageUrl = data.imageUrl || data.url;
+      if (imageUrl) {
+        console.log('🖼️ 新しい画像URL受信:', imageUrl);
+        setImageHistory([imageUrl, ...imageHistory]);
         setPromptHistory([prompt, ...promptHistory]);
-        setSelectedImage(data.url);
+        setSelectedImage(imageUrl);
+        
+        // 💾 ヒストリーを更新（最新の画像生成が履歴に反映される）
+        console.log('📜 ヒストリーを更新中...');
+        setTimeout(() => fetchUserHistory(), 1000); // 1秒後にヒストリーを再取得
       } else if (data.imageUrl) {
         console.log('🖼️ 新しい画像URL受信(imageUrl):', data.imageUrl);
         setImageHistory([data.imageUrl, ...imageHistory]);
         setPromptHistory([prompt, ...promptHistory]);
         setSelectedImage(data.imageUrl);
+        
+        // 💾 ヒストリーを更新（最新の画像生成が履歴に反映される）
+        console.log('📜 ヒストリーを更新中...');
+        setTimeout(() => fetchUserHistory(), 1000); // 1秒後にヒストリーを再取得
       }
       // --- 成功時もbase64画像があれば保存 ---
       if (data.imageBase64) {
@@ -613,21 +821,9 @@ function AppContent() {
         // 注意: img2img画像はそのまま保持（編集結果と比較できるように）
       }
       
-      console.log('📋 画像リスト更新開始');
-      // 画像リストを最新化
-      try {
-        const resList = await fetch('/api/list');
-        if (resList.ok) {
-          const listData = await resList.json();
-          if (Array.isArray(listData.urls)) {
-            setImageHistory(listData.urls);
-            if (listData.urls.length > 0) setSelectedImage(listData.urls[0]);
-            console.log('✅ 画像リスト更新完了');
-          }
-        }
-      } catch (e) {
-        console.error('⚠️ 画像リストの再取得に失敗', e);
-      }
+      // ✅ 新しい画像はすでにsetImageHistory/setSelectedImageで設定済み
+      // 画像リスト更新は不要（競合を避けるため削除）
+      console.log('✅ 新しい画像の表示完了（リスト更新はスキップ）');
     } catch (e) {
       console.error('❌ 画像生成失敗', e);
       alert('画像生成でエラーが発生しました: ' + e);
@@ -1247,11 +1443,348 @@ function AppContent() {
             </div>
           </div>
         </div>
-        <div className="prompt-history-pane" style={{ minWidth: 220, maxWidth: 320, width: '22vw', background: '#fafaff', borderLeft: '1px solid #eee', padding: 16, boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-          <h3>プロンプト履歴</h3>
-          <ul style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 8 }}>
-            {promptHistory.slice(0, 10).map((p, idx) => <li key={idx}>{p}</li>)}
-          </ul>
+        <div className="prompt-history-pane" style={{ 
+          minWidth: showHistoryPanel ? 350 : 60, 
+          maxWidth: showHistoryPanel ? 450 : 60,
+          width: showHistoryPanel ? '25vw' : '60px', 
+          background: '#fafaff', 
+          borderLeft: '1px solid #eee', 
+          padding: showHistoryPanel ? 16 : 8, 
+          boxSizing: 'border-box', 
+          display: 'flex', 
+          flexDirection: 'column',
+          transition: 'all 0.3s ease',
+          position: 'relative'
+        }}>
+          {/* ヒストリーパネルの開閉ボタン */}
+          <button 
+            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: showHistoryPanel ? 8 : 12,
+              background: '#007acc',
+              color: 'white',
+              border: 'none',
+              borderRadius: '50%',
+              width: 36,
+              height: 36,
+              fontSize: 16,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              zIndex: 10
+            }}
+          >
+            {showHistoryPanel ? '✕' : '📜'}
+          </button>
+
+          {showHistoryPanel && (
+            <>
+              <div style={{ marginTop: 50 }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#333' }}>
+                  💾 プロンプト履歴
+                </h3>
+                
+                {/* ヒストリー統計 */}
+                {historyStats && (
+                  <div style={{
+                    background: '#e8f4fd',
+                    padding: 12,
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    fontSize: 13,
+                    color: '#333'
+                  }}>
+                    <div><strong>総生成数:</strong> {historyStats.totalItems}回</div>
+                    {historyStats.lastGenerated && (
+                      <div style={{ marginTop: 4 }}>
+                        <strong>最新:</strong> {new Date(historyStats.lastGenerated).toLocaleDateString('ja-JP')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ローディング状態 */}
+                {historyLoading && (
+                  <div style={{ textAlign: 'center', padding: 20, color: '#666' }}>
+                    <div>📜 履歴読み込み中...</div>
+                  </div>
+                )}
+
+                {/* 認証していない場合 */}
+                {!isAuthenticated && (
+                  <div style={{
+                    background: '#fff3cd',
+                    padding: 12,
+                    borderRadius: 8,
+                    fontSize: 13,
+                    color: '#856404',
+                    textAlign: 'center'
+                  }}>
+                    🔒 ログインして履歴を確認
+                  </div>
+                )}
+
+                {/* ヒストリーリスト */}
+                {isAuthenticated && userHistory.length > 0 && (
+                  <div style={{ 
+                    maxHeight: 'calc(100vh - 350px)', 
+                    overflowY: 'auto',
+                    paddingRight: 8 
+                  }}>
+                    {userHistory.map((item, idx) => (
+                      <div 
+                        key={item.id} 
+                        style={{
+                          background: '#fff',
+                          border: '1px solid #e0e0e0',
+                          borderRadius: 8,
+                          padding: 12,
+                          marginBottom: 12,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
+                        }}
+                        onClick={() => {
+                          // ヒストリーアイテムをクリックしたらプロンプトをセット
+                          setPrompt(item.originalPrompt);
+                          // カメラ設定も復元
+                          setFocalLength(item.cameraSettings.focalLength);
+                          setAperture(item.cameraSettings.aperture);
+                          setColorTemp(item.cameraSettings.colorTemp);
+                          setImageStyle(item.cameraSettings.imageStyle);
+                          setSize(item.size);
+                          // 画像があれば表示
+                          if (item.imageUrl) {
+                            setSelectedImage(item.imageUrl);
+                            // サムネイル履歴にも追加（重複チェック）
+                            if (!imageHistory.includes(item.imageUrl)) {
+                              setImageHistory([item.imageUrl, ...imageHistory]);
+                            }
+                          }
+                          console.log('📜 ヒストリーアイテムから設定を復元:', item);
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.1)';
+                        }}
+                      >
+                        {/* タイムスタンプと操作タイプ */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 8
+                        }}>
+                          <span style={{ 
+                            fontSize: 10, 
+                            color: '#666',
+                            fontWeight: 'bold'
+                          }}>
+                            {new Date(item.timestamp).toLocaleString('ja-JP', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                              background: item.operationType === 'generate' ? '#e8f5e8' : '#fff3e0',
+                              color: item.operationType === 'generate' ? '#2e7d32' : '#f57c00',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              fontSize: 9,
+                              fontWeight: 'bold'
+                            }}>
+                              {item.operationType === 'generate' ? '🎨 生成' : '✏️ 編集'}
+                            </span>
+                            {/* 削除ボタン */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm('この履歴を削除しますか？')) {
+                                  deleteHistoryItem(item.id);
+                                }
+                              }}
+                              style={{
+                                background: '#ff4444',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 3,
+                                padding: '2px 4px',
+                                fontSize: 8,
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* プロンプトテキスト（省略表示） */}
+                        <div style={{
+                          color: '#333',
+                          lineHeight: 1.4,
+                          marginBottom: 8,
+                          maxHeight: 40,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical'
+                        }}>
+                          {item.originalPrompt}
+                        </div>
+
+                        {/* サムネイル画像 */}
+                        {item.imageUrl && (
+                          <div style={{ textAlign: 'center', marginBottom: 8, position: 'relative' }}>
+                            <img 
+                              src={item.imageUrl}
+                              alt="履歴画像"
+                              crossOrigin="anonymous"
+                              style={{
+                                width: '100%',
+                                maxWidth: 120,
+                                height: 80,
+                                objectFit: 'cover',
+                                borderRadius: 4,
+                                border: '1px solid #ddd'
+                              }}
+                            />
+                            {/* img2imgボタン */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation(); // 親のクリックイベントを防ぐ
+                                if (hasMaskContent && !window.confirm('マスクが描かれています。新しい画像を設定するとマスクがクリアされますが、よろしいですか？')) {
+                                  return;
+                                }
+                                setUploadImagePreview(item.imageUrl);
+                                setSelectedImage(item.imageUrl);
+                                setMode('edit');
+                                console.log('🎨 ヒストリーからimg2img対象を設定:', item.imageUrl);
+                              }}
+                              style={{
+                                position: 'absolute',
+                                bottom: 2,
+                                right: 2,
+                                background: uploadImagePreview === item.imageUrl ? '#ff4444' : 'rgba(255,255,255,0.9)',
+                                color: uploadImagePreview === item.imageUrl ? '#fff' : '#333',
+                                border: '1px solid #ccc',
+                                borderRadius: 3,
+                                padding: '2px 4px',
+                                fontSize: 8,
+                                fontWeight: 'bold',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {uploadImagePreview === item.imageUrl ? '選択中' : 'img2img'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* カメラ設定の概要 */}
+                        <div style={{
+                          fontSize: 10,
+                          color: '#888',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: 4
+                        }}>
+                          <span>📷 {item.cameraSettings.focalLength}mm</span>
+                          <span>⚪ f/{item.cameraSettings.aperture}</span>
+                          <span>🌡️ {item.cameraSettings.colorTemp}K</span>
+                          <span>📐 {item.size}</span>
+                        </div>
+                        
+                        <div style={{
+                          fontSize: 10,
+                          color: '#888',
+                          marginTop: 4,
+                          fontStyle: 'italic'
+                        }}>
+                          🎨 {item.cameraSettings.imageStyle}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* もっと読み込むボタン */}
+                    {userHistory.length >= 20 && (
+                      <button
+                        onClick={() => fetchUserHistory(20, userHistory.length)}
+                        disabled={historyLoading}
+                        style={{
+                          width: '100%',
+                          padding: 8,
+                          background: '#f8f9fa',
+                          border: '1px solid #dee2e6',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: '#666',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {historyLoading ? '読み込み中...' : 'さらに読み込む'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* ヒストリーがない場合 */}
+                {isAuthenticated && !historyLoading && userHistory.length === 0 && (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: 20,
+                    color: '#666',
+                    fontSize: 13
+                  }}>
+                    <div style={{ marginBottom: 8 }}>📝</div>
+                    <div>まだ履歴がありません</div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>
+                      画像を生成すると<br/>ここに履歴が表示されます
+                    </div>
+                    <div style={{
+                      marginTop: 12,
+                      padding: 8,
+                      background: '#fff3cd',
+                      borderRadius: 4,
+                      fontSize: 10,
+                      color: '#856404'
+                    }}>
+                      💡 履歴機能を使うには<br/>Cosmos DBのデプロイが必要です
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* 折りたたみ時の簡易表示 */}
+          {!showHistoryPanel && isAuthenticated && historyStats && (
+            <div style={{
+              position: 'absolute',
+              top: 55,
+              left: 8,
+              right: 8,
+              background: '#007acc',
+              color: 'white',
+              borderRadius: 4,
+              padding: '4px 6px',
+              fontSize: 9,
+              textAlign: 'center',
+              fontWeight: 'bold'
+            }}>
+              {historyStats.totalItems}
+            </div>
+          )}
         </div>
         {/* サムネイルリストを画面下部に固定 */}
         <div className="thumbnails-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff', borderTop: '1px solid #eee', zIndex: 10, padding: '8px 0', boxShadow: '0 -2px 8px #0001', display: 'flex', justifyContent: 'center' }}>
