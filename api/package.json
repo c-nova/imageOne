@@ -7,15 +7,19 @@
     "start": "func start"
   },
   "dependencies": {
+    "@azure/cosmos": "^4.1.1",
     "@azure/functions": "^4.0.1",
     "@azure/identity": "^3.1.0",
     "@azure/keyvault-secrets": "^4.4.0",
     "@azure/storage-blob": "^12.10.0",
     "@types/busboy": "^1.5.4",
+    "@types/jsonwebtoken": "^9.0.9",
     "axios": "^1.9.0",
     "busboy": "^1.6.0",
     "form-data": "^4.0.2",
     "formidable": "^3.5.4",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.2.0",
     "openai": "^4.100.0",
     "uuid": "^9.0.0"
   },
