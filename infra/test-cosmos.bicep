@@ -19,7 +19,7 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
         failoverPriority: 0
       }
     ]
-    enableFreeTier: false
+    enableFreeTier: true
     capabilities: [
       {
         name: 'EnableServerless'

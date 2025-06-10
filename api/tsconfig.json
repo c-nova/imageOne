@@ -14,7 +14,10 @@
     "list/*.ts",
     "delete/*.ts",
     "edit/*.ts",
-    "generate/*.ts"
+    "generate/*.ts",
+    "history/*.ts",
+    "refresh-token/*.ts",
+    "image-proxy/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

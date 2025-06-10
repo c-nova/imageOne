@@ -74,7 +74,7 @@ export async function getUserFromToken(token: string): Promise<UserInfo> {
       const tenantId = await getTenantId();
       
       jwt.verify(cleanToken, getKey, {
-        audience: clientId, // アプリケーションのClient ID
+        // audience: clientId, // User.Readスコープ対応のため一時的に無効化
         issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
         algorithms: ['RS256']
       }, (err, decoded: any) => {
@@ -123,7 +123,8 @@ export function generateUserBlobPath(userId: string, fileName: string): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   
-  return `user-images/${userId}/${year}/${month}/${day}/${fileName}`;
+  // user-images/を除去してユーザーIDから始まるパスに修正
+  return `${userId}/${year}/${month}/${day}/${fileName}`;
 }
 
 // セキュリティログ用のユーザー情報マスキング

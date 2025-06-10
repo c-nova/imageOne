@@ -1,7 +1,7 @@
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 import { AzureOpenAI } from "openai";
-import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters } from "@azure/storage-blob";
+import { BlobServiceClient } from "@azure/storage-blob";
 import { v4 as uuidv4 } from "uuid";
 import { getUserFromRequest, generateUserBlobPath, maskUserInfo } from "../shared/auth";
 import { savePromptHistory, PromptHistoryItem } from "../shared/cosmos";
@@ -110,25 +110,10 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     
     context.log(`ユーザー ${maskUserInfo(userInfo).userId} の画像を保存: ${userBlobPath}`);
     
-    // SASトークン付きURLを生成（プライベートコンテナ対応）
-    const now = new Date();
-    const expiry = new Date(now.getTime() + 60 * 60 * 1000); // 1時間有効
-    const delegationKey = await outputBlobServiceClient.getUserDelegationKey(now, expiry);
-    const storageAccountName = process.env.STORAGE_ACCOUNT_NAME;
-    if (!storageAccountName) {
-      throw new Error("STORAGE_ACCOUNT_NAME環境変数が設定されていません");
-    }
+    // プロキシ経由でのURL生成（セキュア・SASトークン不要）
+    const outputBlobUrl = `/api/image-proxy?path=${encodeURIComponent(userBlobPath)}`;
     
-    const sas = generateBlobSASQueryParameters({
-      containerName: outputContainerName,
-      blobName: userBlobPath,
-      permissions: BlobSASPermissions.parse("r"),
-      startsOn: now,
-      expiresOn: expiry,
-    }, delegationKey, storageAccountName).toString();
-    const outputBlobUrl = `${outputBlobClient.url}?${sas}`;
-    
-    context.log(`画像をBlob Storageに保存しました: ${outputBlobUrl}`);
+    context.log(`画像をBlob Storageに保存しました: ${userBlobPath} -> プロキシURL: ${outputBlobUrl}`);
     
     // --- プロンプト履歴をCosmos DBに保存 ---
     try {

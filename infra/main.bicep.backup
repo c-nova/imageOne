@@ -1,0 +1,309 @@
+@description('Deploy SWA, Functions, Storage, Key Vault for GPT-image-1 app')
+param location string = resourceGroup().location
+param environmentName string = 'dev'
+
+var resourceToken = uniqueString(subscription().id, resourceGroup().id, environmentName)
+var storageAccountName = toLower('${environmentName}imgstore${resourceToken}')
+var functionName = '${environmentName}-func-api-${resourceToken}'
+var staticSiteName = '${environmentName}-staticapp-${resourceToken}'
+var keyVaultName = toLower('${environmentName}-kv-${resourceToken}')
+var cosmosDbName = toLower('${environmentName}-cosmos-${resourceToken}')
+var userAssignedIdentityName = '${environmentName}-id-${resourceToken}'
+
+resource storage 'Microsoft.Storage/storageAccounts@2021-02-01' = {
+  name: storageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    minimumTlsVersion: 'TLS1_2'
+    encryption: {
+      services: {
+        blob: { enabled: true }
+        file: { enabled: true }
+      }
+      keySource: 'Microsoft.Storage'
+    }
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+  }
+}
+
+// User-assigned managed identity
+resource userAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: userAssignedIdentityName
+  location: location
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+  }
+}
+
+// Cosmos DB for prompt history
+resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
+  name: cosmosDbName
+  location: location
+  kind: 'GlobalDocumentDB'
+  properties: {
+    databaseAccountOfferType: 'Standard'
+    consistencyPolicy: {
+      defaultConsistencyLevel: 'Session'
+    }
+    locations: [
+      {
+        locationName: location
+        failoverPriority: 0
+        isZoneRedundant: false
+      }
+    ]
+    enableFreeTier: true
+    enableAutomaticFailover: false
+    enableMultipleWriteLocations: false
+    capabilities: [
+      {
+        name: 'EnableServerless'
+      }
+    ]
+    publicNetworkAccess: 'Enabled'
+    disableLocalAuth: false
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+  }
+}
+
+resource kv 'Microsoft.KeyVault/vaults@2021-06-01-preview' = {
+  name: keyVaultName
+  location: location
+  properties: {
+    tenantId: subscription().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    enabledForTemplateDeployment: true
+    enableSoftDelete: true
+    enablePurgeProtection: true
+    publicNetworkAccess: 'Disabled'
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+  }
+}
+
+// Cosmos DB endpoint secret in Key Vault
+resource cosmosEndpointSecret 'Microsoft.KeyVault/vaults/secrets@2021-06-01-preview' = {
+  name: 'CosmosDB-Endpoint'
+  parent: kv
+  properties: {
+    value: cosmosDb.properties.documentEndpoint
+  }
+}
+
+resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = {
+  name: '${functionName}-plan'
+  location: location
+  sku: {
+    name: 'Y1'
+    tier: 'Dynamic'
+  }
+  properties: {
+    reserved: false
+  }
+  kind: 'functionapp'
+}
+
+resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
+  name: functionName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${userAssignedIdentity.id}': {}
+    }
+  }
+  kind: 'functionapp'
+  properties: {
+    httpsOnly: true
+    serverFarmId: hostingPlan.id
+    siteConfig: {
+      appSettings: [
+        {
+          name: 'AzureWebJobsStorage'
+          value: storage.properties.primaryEndpoints.blob
+        }
+        {
+          name: 'WEBSITE_RUN_FROM_PACKAGE'
+          value: '1'
+        }
+        {
+          name: 'FUNCTIONS_EXTENSION_VERSION'
+          value: '~4'
+        }
+        {
+          name: 'WEBSITE_NODE_DEFAULT_VERSION'
+          value: '~18'
+        }
+        {
+          name: 'KeyVaultName'
+          value: kv.name
+        }
+        {
+          name: 'FUNCTIONS_WORKER_RUNTIME'
+          value: 'node'
+        }
+      ]
+    }
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+    'azd-service-name': 'api'
+  }
+}
+
+resource kvAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, kv.id, 'kv-access')
+  scope: kv
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Storage Blob Data Contributor role
+resource storageBlobAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, storage.id, 'storage-blob-role')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Storage Queue Data Contributor role
+resource storageQueueAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, storage.id, 'storage-queue-role')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Storage Table Data Contributor role
+resource storageTableAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, storage.id, 'storage-table-role')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Monitoring Metrics Publisher role
+resource monitoringAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, resourceGroup().id, 'monitoring-role')
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Cosmos DB Data Contributor role for Function App
+resource cosmosAccess 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(userAssignedIdentity.id, cosmosDb.id, 'cosmos-contributor-role')
+  scope: cosmosDb
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+    principalId: userAssignedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Log Analytics Workspace for Function App diagnostics
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${environmentName}-logs-${resourceToken}'
+  location: location
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+  }
+}
+
+// Diagnostic settings for Function App
+resource functionAppDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'function-app-diagnostics'
+  scope: functionApp
+  properties: {
+    workspaceId: logAnalyticsWorkspace.id
+    logs: [
+      {
+        category: 'FunctionAppLogs'
+        enabled: true
+        retentionPolicy: {
+          days: 30
+          enabled: true
+        }
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+        retentionPolicy: {
+          days: 30
+          enabled: true
+        }
+      }
+    ]
+  }
+}
+
+resource staticApp 'Microsoft.Web/staticSites@2020-12-01' = {
+  name: staticSiteName
+  location: 'eastasia'
+  properties: {
+    repositoryToken: 'REPO_TOKEN_PLACEHOLDER'
+    buildProperties: {
+      appLocation: 'app'
+      apiLocation: 'api'
+      outputLocation: ''
+    }
+  }
+  tags: {
+    environment: environmentName
+    'azd-env-name': environmentName
+    'azd-service-name': 'app'
+  }
+}
+
+output functionEndpoint string = functionApp.properties.defaultHostName
+output staticUrl string = staticApp.properties.defaultHostname
+output cosmosEndpoint string = cosmosDb.properties.documentEndpoint
+output cosmosAccountName string = cosmosDb.name
+
+// Required outputs for azd
+output AZURE_LOCATION string = location
+output AZURE_TENANT_ID string = subscription().tenantId
+output AZURE_SUBSCRIPTION_ID string = subscription().subscriptionId
+output RESOURCE_GROUP_ID string = resourceGroup().id

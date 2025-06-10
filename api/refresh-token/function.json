@@ -1,13 +1,13 @@
 {
-  "scriptFile": "../dist/history/index.js",
+  "scriptFile": "../dist/refresh-token/index.js",
   "bindings": [
     {
-      "authLevel": "function",
+      "authLevel": "anonymous",
       "type": "httpTrigger",
       "direction": "in",
       "name": "req",
-      "methods": ["get", "delete"],
-      "route": "history/{id?}"
+      "methods": ["post"],
+      "route": "refresh-token"
     },
     {
       "type": "http",
