@@ -1,0 +1,378 @@
+// App.tsx - 動画プレイヤー + ジョブリスト改良版
+import React from 'react';
+import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
+import { PublicClientApplication } from '@azure/msal-browser';
+import { msalConfig } from './msalConfig';
+import { useVideoGeneration } from './hooks/useVideoGeneration';
+import { VideoJob } from './types';
+import VideoGenerationPanel from './components/VideoGenerationPanel';
+import VideoHistoryPanel from './VideoHistoryPanel';
+import './App.css';
+
+const msalInstance = new PublicClientApplication(msalConfig);
+
+function AuthButtons() {
+  const { instance } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+
+  if (isAuthenticated) {
+    return (
+      <div style={{ 
+        position: 'absolute', 
+        top: '10px', 
+        right: '10px', 
+        zIndex: 1000 
+      }}>
+        <button 
+          onClick={() => instance.logoutPopup()}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#d32f2f',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          ログアウト
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function AppContent() {
+  const isAuthenticated = useIsAuthenticated();
+  const { instance } = useMsal();
+
+  // 🎬 動画生成関連のhookを使用
+  const {
+    // State
+    videoPrompt,
+    setVideoPrompt,
+    videoAspectRatio,
+    setVideoAspectRatio,
+    videoResolution,
+    setVideoResolution,
+    videoDuration,
+    setVideoDuration,
+    videoVariation,
+    setVideoVariation,
+    videoHistory,
+    activeVideoJobs,
+    selectedVideo,
+    videoLoading,
+    videoHistoryLoading,
+    recommendedPrompt,
+    loadingRec,
+    
+    // Actions
+    handleVideoGenerate,
+    handleVideoSelect,
+    handleVideoHistoryRefresh,
+    handleVideoJobsRefresh,
+    handleProcessCompletedJobWithDelete,
+    handleDeleteVideoJob,
+    generateRecommendedVideo,
+    useRecommendedPrompt,
+    
+    // Auth
+    getAuthToken,
+  } = useVideoGeneration();
+
+  // ログインしてなければモーダル表示
+  if (!isAuthenticated) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h2>ログインが必要だよ！</h2>
+          <p>このアプリを使うにはMicrosoft Entra IDでログインしてね！</p>
+          <button 
+            className="login-modal-btn" 
+            onClick={() => instance.loginPopup()}
+          >
+            ログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // メインUI
+  return (
+    <div className="container">
+      {/* 左側: 動画生成パネル + 動画ジョブリスト + 動画プレイヤー */}
+      <div className="left">
+        <VideoGenerationPanel
+          videoPrompt={videoPrompt}
+          setVideoPrompt={setVideoPrompt}
+          videoAspectRatio={videoAspectRatio}
+          setVideoAspectRatio={setVideoAspectRatio}
+          videoResolution={videoResolution}
+          setVideoResolution={setVideoResolution}
+          videoDuration={videoDuration}
+          setVideoDuration={setVideoDuration}
+          videoVariation={videoVariation}
+          setVideoVariation={setVideoVariation}
+          videoLoading={videoLoading}
+          loadingRec={loadingRec}
+          recommendedPrompt={recommendedPrompt}
+          onVideoGenerate={handleVideoGenerate}
+          onGenerateRecommended={generateRecommendedVideo}
+          onUseRecommendedPrompt={useRecommendedPrompt}
+        />
+
+        {/* 下側: 動画プレイヤーとジョブリストの2カラムレイアウト */}
+        <div className="bottom">
+          <div className="bottom-content">
+            {/* 左側: 動画プレイヤー */}
+            {selectedVideo && (
+              <div className="video-player-section">
+                <div className="video-player-header">
+                  <h3>▶️ 再生中の動画</h3>
+                  <button 
+                    className="close-btn"
+                    onClick={() => handleVideoSelect(null)}
+                    title="動画プレイヤーを閉じる"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="large-video-player-container">
+                  <video 
+                    controls 
+                    className="large-video-player"
+                    key={selectedVideo.id}
+                    autoPlay
+                    style={{
+                      width: '100%',
+                      maxWidth: '100%',
+                      height: 'auto',
+                      borderRadius: '8px',
+                      border: '2px solid #007acc'
+                    }}
+                  >
+                    <source src={selectedVideo.videoUrl} type="video/mp4" />
+                    お使いのブラウザは動画再生をサポートしていません。
+                  </video>
+                  <div className="large-video-player-info">
+                    <div className="video-player-prompt">
+                      <strong>📝 プロンプト:</strong> {selectedVideo.prompt}
+                    </div>
+                    <div className="video-player-details">
+                      📐 {selectedVideo.videoSettings.width}×{selectedVideo.videoSettings.height} • 
+                      ⏱️ {selectedVideo.videoSettings.n_seconds}秒
+                      {selectedVideo.metadata.fileSize && ` • 📦 ${(selectedVideo.metadata.fileSize / 1024 / 1024).toFixed(1)}MB`}
+                    </div>
+                    <div className="video-player-actions">
+                      <button 
+                        className="download-btn"
+                        onClick={async () => {
+                          console.log('🎯 大きなプレイヤーのダウンロードボタンがクリックされました！', selectedVideo.id);
+                          
+                          try {
+                            // MSALから認証トークンを取得
+                            const token = await getAuthToken();
+                            console.log('🔐 トークンチェック:', token ? '✅ あり' : '❌ なし');
+                            
+                            if (!token) {
+                              throw new Error('認証トークンが見つかりません。再ログインしてください。');
+                            }
+                            
+                            // ダウンロードAPIを呼び出し
+                            const response = await fetch(`/api/downloadVideo/${selectedVideo.id}`, {
+                              method: 'GET',
+                              headers: {
+                                'Authorization': `Bearer ${token}`
+                              }
+                            });
+
+                            console.log('📡 API レスポンス:', response.status, response.statusText);
+
+                            if (!response.ok) {
+                              throw new Error(`ダウンロードエラー: ${response.status}`);
+                            }
+
+                            // ファイル名を取得（可能であれば）
+                            const contentDisposition = response.headers.get('content-disposition');
+                            let filename = `video_${selectedVideo.id}.mp4`;
+                            if (contentDisposition) {
+                              const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                              if (matches && matches[1]) {
+                                filename = matches[1].replace(/['"]/g, '');
+                              }
+                            }
+
+                            // レスポンスをBlobとして取得
+                            const blob = await response.blob();
+                            
+                            // ダウンロード用のURLを作成
+                            const downloadUrl = URL.createObjectURL(blob);
+                            
+                            // ダウンロードリンクを作成してクリック
+                            const link = document.createElement('a');
+                            link.href = downloadUrl;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            
+                            // クリーンアップ
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(downloadUrl);
+
+                            console.log('✅ ダウンロード成功:', filename);
+                            
+                          } catch (error) {
+                            console.error('❌ ダウンロードエラー:', error);
+                            const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+                            alert(`ダウンロードに失敗しました: ${errorMessage}`);
+                          }
+                        }}
+                        title="動画をダウンロード"
+                      >
+                        📥 ダウンロード
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* 右側: 動画ジョブリスト（常に表示） */}
+            <div className={`video-jobs-section ${selectedVideo ? 'with-player' : 'without-player'}`}>
+              <div className="video-jobs-panel">
+                <div className="video-jobs-header">
+                  <h3>🚀 動画ジョブ</h3>
+                  <button 
+                    onClick={handleVideoJobsRefresh} 
+                    className="refresh-btn"
+                  >
+                    ↻ 更新
+                  </button>
+                </div>
+                
+                {activeVideoJobs.length === 0 ? (
+                  <div className="empty-state">
+                    動画ジョブがありません
+                  </div>
+                ) : (
+                  <div className="jobs-list">
+                    {activeVideoJobs.map((job: VideoJob) => (
+                      <div key={job.id} className="job-item">
+                        <div className="job-content">
+                          <div className="job-main">
+                            <div className="job-status">
+                              {job.status === 'pending' && '⏳'}
+                              {job.status === 'running' && '🔄'}
+                              {job.status === 'completed' && '✅'}
+                              {job.status === 'succeeded' && '✅'}
+                              {job.status === 'failed' && '❌'}
+                              {job.status === 'cancelled' && '🚫'}
+                              {' '}{job.status}
+                            </div>
+                            <div className="job-prompt">
+                              {job.prompt.length > 50 ? `${job.prompt.substring(0, 50)}...` : job.prompt}
+                            </div>
+                            <div className="job-details">
+                              {job.videoSettings.width}×{job.videoSettings.height} • 
+                              {job.videoSettings.n_seconds}秒 • 
+                              {job.startTime.toLocaleTimeString()}
+                            </div>
+                            
+                            {/* 完成したジョブに処理ボタンを表示 */}
+                            {(job.status === 'completed' || job.status === 'succeeded') && (
+                              <div className="job-actions">
+                                <button 
+                                  className="process-btn"
+                                  onClick={() => handleProcessCompletedJobWithDelete(job)}
+                                >
+                                  📥 取り込み
+                                </button>
+                                <button 
+                                  className="delete-job-btn"
+                                  onClick={() => handleDeleteVideoJob(job)}
+                                >
+                                  🗑️ 削除
+                                </button>
+                              </div>
+                            )}
+                            
+                            {/* 実行中・待機中のジョブにも削除ボタン */}
+                            {(job.status === 'running' || job.status === 'pending') && (
+                              <div className="job-actions">
+                                <button 
+                                  className="cancel-job-btn"
+                                  onClick={() => handleDeleteVideoJob(job)}
+                                >
+                                  ⏹️ キャンセル
+                                </button>
+                              </div>
+                            )}
+                            
+                            {/* 失敗したジョブにも削除ボタン */}
+                            {job.status === 'failed' && (
+                              <div className="job-actions">
+                                <button 
+                                  className="delete-job-btn"
+                                  onClick={() => handleDeleteVideoJob(job)}
+                                >
+                                  🗑️ 削除
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* サムネイル表示 */}
+                          {job.thumbnailUrl && (
+                            <div className="job-thumbnail">
+                              <img 
+                                src={job.thumbnailUrl} 
+                                alt="Video thumbnail"
+                                style={{
+                                  width: '80px',
+                                  height: '60px',
+                                  objectFit: 'cover',
+                                  borderRadius: '4px',
+                                  border: '1px solid #ddd'
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* 右側: 動画履歴（Cosmos DBから） */}
+      <div className="right">
+        <VideoHistoryPanel
+          videoHistory={videoHistory}
+          activeVideoJobs={[]} // 右ペインではアクティブジョブを表示しない
+          selectedVideo={selectedVideo}
+          onVideoSelect={handleVideoSelect}
+          onRefresh={handleVideoHistoryRefresh}
+          loading={videoHistoryLoading}
+        />
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AuthButtons />
+      <AppContent />
+    </MsalProvider>
+  );
+}
+
+export default App;

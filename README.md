@@ -1,13 +1,22 @@
-# 🎨 ImageOne - AI画像生成＆編集アプリ
+## 🎨 ImageOne - AI画像生成＆編集アプリ + 動画生成機能
 
-Azure OpenAI GPT-4oとGPT-image-1を使った、最新のAI画像生成・編集Webアプリケーションです！✨
+Azure OpenAI GPT-4o、GPT-image-1、およびSora動画生成を使った、最新のAI画像・動画生成Webアプリケーションです！✨
 
 ## 📸 サンプル画像
 
 ![ImageOne Sample](docs/sample-image.png)
-*ImageOneで生成された美しい草原と女性・馬のシーン - プロフェッショナルカメラ設定（50mm, f/2.8, 5500K）による高品質生成例*
+*ImageOneのメインインターフェース - 動画生成・画像生成・編集機能を統合したモダンなWebアプリケーション画面*
 
 ## 🚀 機能概要
+
+### 🎬 動画生成機能 (NEW!)
+- **Azure OpenAI Sora**: 最新の動画生成AIによる高品質動画作成
+- **📥 動画ダウンロード**: 完成した動画をワンクリックでMP4ダウンロード
+- **🗑️ ジョブ管理**: 実行中・完成・失敗した動画ジョブの手動削除機能
+- **🔄 自動整理**: 動画取り込み後の自動ジョブ削除で履歴をクリーンに保持
+- **📱 リアルタイム監視**: 動画生成の進捗をリアルタイムで確認
+- **🎯 多様な動画設定**: 解像度・秒数・バリエーション数の詳細設定
+- **🔧 正確なAPI実装**: Azure OpenAI Video Generation Jobs APIの完全対応
 
 ### 🎭 画像生成モード
 - **GPT-4oによる推奨プロンプト生成**: 簡単な入力から詳細で効果的なプロンプトを自動生成
@@ -49,6 +58,11 @@ app/
 api/
 ├── generate/             # 画像生成API
 ├── edit/                # 画像編集API (img2img)
+├── generateVideo/       # 動画生成API 🆕
+├── downloadVideo/       # 動画ダウンロードAPI 🆕
+├── deleteVideoJob/      # 動画ジョブ削除API (Azure OpenAI準拠) 🆕
+├── videoHistory/        # 動画履歴API 🆕
+├── videoJobs/           # 動画ジョブ状態API 🆕
 ├── recommend/           # プロンプト推奨API
 ├── list/                # 画像一覧API
 ├── delete/              # 画像削除API
@@ -81,6 +95,7 @@ infra/
 ### AI/ML
 - **GPT-4o** - プロンプト推奨生成
 - **GPT-image-1** - 最新画像生成・編集モデル
+- **Azure OpenAI Sora** - 高品質動画生成モデル 🆕
 - **Content Filter** - コンテンツポリシー適用
 
 ## 🎯 主要実装機能
@@ -196,6 +211,14 @@ azd up
 
 ## 🎮 使い方
 
+### 動画生成 🆕
+1. **動画生成パネル**: 左上の動画生成コントロールで設定
+2. **プロンプト入力**: 生成したい動画の説明を入力
+3. **設定調整**: 解像度（854x480）・秒数（5秒）・バリエーション数（1）
+4. **生成実行**: 「動画生成」ボタンでAI動画を生成
+5. **進捗確認**: ジョブリストで生成状況をリアルタイム監視
+6. **ダウンロード**: 完成後に「📥 取り込み」で履歴追加 + 「📥 ダウンロード」でMP4保存
+
 ### 画像生成
 1. **モード選択**: 「画像生成」を選択
 2. **プロンプト入力**: 生成したい画像の説明を入力
@@ -223,6 +246,9 @@ azd up
 |---|---|---|
 | `/api/generate` | 画像生成 | プロンプトから新規画像生成 |
 | `/api/edit` | 画像編集 | マスクベース画像編集 |
+| `/api/generateVideo` | 動画生成 | プロンプトから動画生成 |
+| `/api/downloadVideo/{videoId}` | 動画ダウンロード | 完成動画のセキュアダウンロード 🆕 |
+| `/api/deleteVideoJob/{jobId}` | 動画ジョブ削除 | Azure OpenAI Video Generation Jobs API経由でジョブ削除 🆕 |
 | `/api/recommend` | プロンプト推奨 | GPT-4oによるプロンプト最適化 |
 | `/api/list` | 画像一覧 | 生成済み画像の取得 |
 | `/api/delete` | 画像削除 | 指定画像の削除 |
@@ -254,7 +280,40 @@ azd up
 
 ## 🚀 最新アップデート
 
-### v2.2.1 - 画像履歴＆Blobパス修正・認証強化 (2025年6月) 🆕
+### v2.3.1 - 動画ジョブ削除機能修正 (2025年6月) 🗑️✨ 🆕
+- 🔧 **Azure OpenAI API仕様対応**: 動画ジョブ削除でAzure OpenAI正式エンドポイントを使用
+- 🔗 **エンドポイント修正**: `https://api.openai.com/v1/...` → `${endpoint}/openai/v1/...` (Azure OpenAI)
+- 🔑 **認証方式修正**: `Authorization: Bearer` → `api-key` ヘッダーに変更
+- 📝 **APIバージョン追加**: `?api-version=preview` パラメータを追加してAzure OpenAI仕様に完全準拠
+- 🔍 **デバッグ機能追加**: ジョブパネルにJob ID表示でトラブルシューティングを簡単に
+- 📊 **詳細ログ実装**: バックエンドでリクエスト/レスポンス詳細をログ出力し、問題特定を迅速化
+- ✅ **完全動作確認**: Postman検証済みのAPI仕様でジョブ削除が正常動作
+
+**実装詳細:**
+```typescript
+// 修正後のAPIコール - Azure OpenAI Video Generation Jobs 完全対応
+const deleteResponse = await fetch(
+  `${endpoint}/openai/v1/video/generations/jobs/${jobId}?api-version=preview`,
+  {
+    method: 'DELETE',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json'
+    }
+  }
+);
+```
+
+### v2.3.0 - 動画ダウンロード機能完全実装 (2025年6月) 🎬✨
+- 🎬 **動画ダウンロード機能**: 完成した動画をワンクリックでダウンロード可能
+- 📥 **API認証統一**: downloadVideo APIでMSAL認証を使用し、セキュアなダウンロードを実現
+- 🔄 **Cosmos DB接続修正**: videoHistoryコンテナの参照エラーを修正し、PromptHistoryコンテナに統一
+- 🎯 **自動削除機能復活**: 動画取り込み後の自動ジョブ削除機能を再有効化
+- 🗑️ **手動削除機能**: 実行中・完成・失敗した動画ジョブを手動で削除可能
+- 📦 **完全なファイル処理**: Blob Storageから直接動画データを取得してダウンロード
+- 🛡️ **エラーハンドリング強化**: ダウンロード失敗時の詳細なエラーメッセージ表示
+
+### v2.2.1 - 画像履歴＆Blobパス修正・認証強化 (2025年6月)
 - 🛠️ **画像履歴の統合表示**: Cosmos DBとBlob Storage両方の画像をフロントで統合・重複排除して表示
 - 🐛 **user-images二重パス問題修正**: Blob保存パス生成ロジックを修正し、"user-images/ユーザーID/..."の二重構造を解消
 - 🔐 **Entra ID認証強制対応**: Cosmos DBのローカル認証無効化に伴い、FunctionsからAAD認証でアクセスするよう修正

@@ -165,6 +165,9 @@ export interface PromptHistoryItem {
     ipAddress?: string;
     processingTime?: number;
     hasMask?: boolean;
+    actualWidth?: number;
+    actualHeight?: number;
+    originalDetectedSize?: string;
   };
 }
 
@@ -356,5 +359,31 @@ export async function deletePromptHistory(id: string, userId: string): Promise<b
     }
     console.log('プロンプト履歴の削除に失敗しましたが、falseを返します:', error.message);
     return false; // エラー時もfalseを返す
+  }
+}
+
+// 指定blobパスで履歴を削除（user-images/は除去して検索）
+export async function deletePromptHistoryByBlobPath(blobPath: string): Promise<number> {
+  try {
+    const container = await getContainer();
+    if (!container) return 0;
+    // blobPathは "userId/年月日/ファイル名" 形式
+    const query = {
+      query: "SELECT c.id, c.userId FROM c WHERE c.imageBlobPath = @blobPath OR c.imageBlobPath = @blobPathWithPrefix",
+      parameters: [
+        { name: "@blobPath", value: blobPath },
+        { name: "@blobPathWithPrefix", value: `user-images/${blobPath}` }
+      ]
+    };
+    const { resources } = await container.items.query(query).fetchAll();
+    let deleted = 0;
+    for (const item of resources) {
+      await container.item(item.id, item.userId).delete();
+      deleted++;
+    }
+    return deleted;
+  } catch (err) {
+    console.log('deletePromptHistoryByBlobPath error:', err);
+    return 0;
   }
 }

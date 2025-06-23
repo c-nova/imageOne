@@ -1,0 +1,454 @@
+import React, { useState } from 'react';
+import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
+import { PublicClientApplication } from '@azure/msal-browser';
+import { msalConfig } from './msalConfig';
+import { useVideoGeneration } from './hooks/useVideoGeneration';
+import { useImageGeneration } from './hooks/useImageGeneration';
+import { useImageEdit } from './hooks/useImageEdit';
+import VideoGenerationPanel from './components/VideoGenerationPanel';
+import ImageGenerationPanel from './components/ImageGenerationPanel';
+import ImageEditPanel from './components/ImageEditPanel';
+import ImageHistoryPanel from './components/ImageHistoryPanel';
+import VideoHistoryPanel from './VideoHistoryPanel';
+import './App.css';
+
+// アプリモード定義（3つのモード統合！）
+type AppMode = 'generate' | 'edit' | 'video';
+
+const msalInstance = new PublicClientApplication(msalConfig);
+
+function AppContent() {
+  // ===== 🎯 モード管理（3つのモード統合！） =====
+  const [currentMode, setCurrentMode] = useState<AppMode>('generate');
+  
+  // ===== 🔌 フック統合 =====
+  const videoHooks = useVideoGeneration();
+  const imageHooks = useImageGeneration();
+  const editHooks = useImageEdit();
+
+  // ===== 📊 履歴パネル表示状態 =====
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  
+  // ===== 🔐 認証状態 =====
+  const isAuthenticated = useIsAuthenticated();
+  const { instance } = useMsal();
+  
+  // ===== 🎨 コンテンツフィルタエラー用state =====
+  const [showContentFilterError, setShowContentFilterError] = useState<{show: boolean, message: string}>({show: false, message: ''});
+
+  // ===== 🚪 ログインしていない場合のモーダル =====
+  if (!isAuthenticated) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h2>🔐 ログインが必要です</h2>
+          <p>このアプリを使用するにはMicrosoft Entra IDでログインしてください。</p>
+          <button 
+            className="login-modal-btn" 
+            onClick={() => instance.loginPopup()}
+          >
+            📝 ログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== 🎨 メインUI =====
+  return (
+    <div className="App">
+      {/* ===== 🚨 コンテンツフィルタエラーポップアップ ===== */}
+      {showContentFilterError.show && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2 style={{color: '#e74c3c', marginBottom: '16px'}}>⚠️ コンテンツポリシー違反</h2>
+            <p style={{lineHeight: '1.6', marginBottom: '20px'}}>
+              {showContentFilterError.message}
+            </p>
+            <div style={{background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', color: '#6c757d'}}>
+              <strong>ヒント:</strong><br/>
+              • 暴力的、性的、差別的な表現を避けてください<br/>
+              • より具体的で建設的な表現に変更してみてください<br/>
+              • 創作物やフィクションの場合は、そのことを明示してください
+            </div>
+            <button 
+              className="login-modal-btn"
+              style={{background: '#007bff', marginRight: '12px'}}
+              onClick={() => setShowContentFilterError({show: false, message: ''})}
+            >
+              わかりました
+            </button>
+            <button 
+              className="login-modal-btn"
+              style={{background: '#6c757d'}}
+              onClick={() => {
+                setShowContentFilterError({show: false, message: ''});
+              }}
+            >
+              プロンプトをクリア
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 🏢 ヘッダー：モード切り替えタブ ===== */}
+      <div className="header" style={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '16px 24px',
+        borderBottom: '2px solid rgba(255,255,255,0.2)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+      }}>
+        <div className="header-content" style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          maxWidth: '1200px',
+          margin: '0 auto'
+        }}>
+          {/* ロゴ */}
+          <h1 style={{
+            color: 'white',
+            fontSize: '24px',
+            fontWeight: 'bold',
+            margin: 0,
+            textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+          }}>
+            🎨 ImageOne - AI画像・動画生成
+          </h1>
+          
+          {/* モード切り替えタブ（3つのモード！） */}
+          <div className="mode-tabs" style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className={`mode-tab ${currentMode === 'generate' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('generate')}
+              style={{
+                background: currentMode === 'generate' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)',
+                color: currentMode === 'generate' ? '#333' : 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                fontWeight: currentMode === 'generate' ? 'bold' : 'normal',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                backdropFilter: 'blur(10px)'
+              }}
+            >
+              🎭 画像生成
+            </button>
+            <button
+              className={`mode-tab ${currentMode === 'edit' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('edit')}
+              style={{
+                background: currentMode === 'edit' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)',
+                color: currentMode === 'edit' ? '#333' : 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                fontWeight: currentMode === 'edit' ? 'bold' : 'normal',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                backdropFilter: 'blur(10px)'
+              }}
+            >
+              🖼️ 画像編集
+            </button>
+            <button
+              className={`mode-tab ${currentMode === 'video' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('video')}
+              style={{
+                background: currentMode === 'video' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)',
+                color: currentMode === 'video' ? '#333' : 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                fontWeight: currentMode === 'video' ? 'bold' : 'normal',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                backdropFilter: 'blur(10px)'
+              }}
+            >
+              🎬 動画生成
+            </button>
+          </div>
+
+          {/* ログアウトボタン */}
+          <button 
+            onClick={() => instance.logoutPopup()}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '8px',
+              padding: '8px 16px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              backdropFilter: 'blur(10px)',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            🚪 ログアウト
+          </button>
+        </div>
+      </div>
+
+      {/* ===== 📱 メインコンテンツ：3カラムレイアウト ===== */}
+      <div className="container" style={{ 
+        display: 'flex', 
+        flexDirection: 'row', 
+        minHeight: 'calc(100vh - 80px)',
+        width: '100vw', 
+        boxSizing: 'border-box'
+      }}>
+        {/* ===== 🎛️ 左側：操作パネル ===== */}
+        <div className="left" style={{ 
+          minWidth: 0, 
+          maxWidth: '100%', 
+          width: 'auto', 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column',
+          background: '#fafafa',
+          borderRight: '1px solid #e0e0e0'
+        }}>
+          {/* 現在のモードに応じてパネルを切り替え */}
+          {currentMode === 'generate' && (
+            <ImageGenerationPanel
+              prompt={imageHooks.prompt}
+              setPrompt={imageHooks.setPrompt}
+              originalPrompt={imageHooks.originalPrompt}
+              size={imageHooks.size}
+              setSize={imageHooks.setSize}
+              loading={imageHooks.loading}
+              loadingRec={imageHooks.loadingRec}
+              recommendedPrompt={imageHooks.recommendedPrompt}
+              cameraSettings={imageHooks.cameraSettings}
+              setCameraSettings={imageHooks.setCameraSettings}
+              onImageGenerate={imageHooks.handleImageGenerate}
+              onGenerateRecommended={imageHooks.generateRecommendedPrompt}
+              onUseRecommendedPrompt={imageHooks.useRecommendedPrompt}
+            />
+          )}
+
+          {currentMode === 'edit' && (
+            <ImageEditPanel
+              editPrompt={editHooks.editPrompt}
+              setEditPrompt={editHooks.setEditPrompt}
+              uploadedImage={editHooks.uploadedImage}
+              editedImage={editHooks.editedImage}
+              loading={editHooks.loading}
+              detectedSize={editHooks.detectedSize}
+              canvasRef={editHooks.canvasRef}
+              isDrawing={editHooks.isDrawing}
+              hasMask={editHooks.hasMask}
+              onImageUpload={editHooks.handleImageUpload}
+              onImageEdit={editHooks.handleImageEdit}
+              onResetEdit={editHooks.resetEdit}
+              startDrawing={editHooks.startDrawing}
+              draw={editHooks.draw}
+              stopDrawing={editHooks.stopDrawing}
+              clearMask={editHooks.clearMask}
+            />
+          )}
+
+          {currentMode === 'video' && (
+            <VideoGenerationPanel
+              videoPrompt={videoHooks.videoPrompt}
+              setVideoPrompt={videoHooks.setVideoPrompt}
+              videoAspectRatio={videoHooks.videoAspectRatio}
+              setVideoAspectRatio={videoHooks.setVideoAspectRatio}
+              videoResolution={videoHooks.videoResolution}
+              setVideoResolution={videoHooks.setVideoResolution}
+              videoDuration={videoHooks.videoDuration}
+              setVideoDuration={videoHooks.setVideoDuration}
+              videoVariation={videoHooks.videoVariation}
+              setVideoVariation={videoHooks.setVideoVariation}
+              videoLoading={videoHooks.videoLoading}
+              loadingRec={videoHooks.loadingRec}
+              recommendedPrompt={videoHooks.recommendedPrompt}
+              onVideoGenerate={videoHooks.handleVideoGenerate}
+              onGenerateRecommended={videoHooks.generateRecommendedVideo}
+              onUseRecommendedPrompt={videoHooks.useRecommendedPrompt}
+            />
+          )}
+        </div>
+
+        {/* ===== 🖼️ 中央：プレビューエリア ===== */}
+        <div className="preview-wrapper" style={{ 
+          flex: 2,
+          display: 'flex', 
+          flexDirection: 'column',
+          background: '#f5f5f5',
+          minHeight: 0
+        }}>
+          <div className="preview" style={{
+            flex: 1,
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            padding: '20px'
+          }}>
+            {/* 現在のモードに応じて適切な画像/動画を表示 */}
+            {currentMode === 'generate' && imageHooks.selectedImage && (
+              <img
+                src={imageHooks.selectedImage.imageUrl}
+                alt="生成された画像"
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100%', 
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+                }}
+              />
+            )}
+            
+            {currentMode === 'edit' && editHooks.editedImage && (
+              <img
+                src={editHooks.editedImage}
+                alt="編集された画像"
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100%', 
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+                }}
+              />
+            )}
+            
+            {currentMode === 'video' && videoHooks.selectedVideo && videoHooks.selectedVideo.videoUrl && (
+              <video
+                src={videoHooks.selectedVideo.videoUrl}
+                controls
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100%', 
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+                }}
+              />
+            )}
+            
+            {/* デフォルト表示 */}
+            {!imageHooks.selectedImage && !editHooks.editedImage && (!videoHooks.selectedVideo || !videoHooks.selectedVideo.videoUrl) && (
+              <div style={{
+                textAlign: 'center',
+                color: '#666',
+                fontSize: '18px'
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+                  {currentMode === 'generate' && '🎭'}
+                  {currentMode === 'edit' && '🖼️'}
+                  {currentMode === 'video' && '🎬'}
+                </div>
+                {currentMode === 'generate' && '画像生成を開始してください'}
+                {currentMode === 'edit' && '画像をアップロードして編集を開始してください'}
+                {currentMode === 'video' && '動画生成を開始してください'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ===== 📜 右側：履歴パネル ===== */}
+        <div className="prompt-history-pane" style={{ 
+          minWidth: showHistoryPanel ? 350 : 60, 
+          maxWidth: showHistoryPanel ? 450 : 60,
+          width: showHistoryPanel ? '25vw' : '60px', 
+          background: '#fafaff', 
+          borderLeft: '1px solid #eee', 
+          padding: showHistoryPanel ? 16 : 8, 
+          boxSizing: 'border-box', 
+          display: 'flex', 
+          flexDirection: 'column',
+          transition: 'all 0.3s ease',
+          position: 'relative'
+        }}>
+          {/* ヒストリーパネルの開閉ボタン */}
+          <button 
+            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: showHistoryPanel ? 8 : 12,
+              background: '#007acc',
+              color: 'white',
+              border: 'none',
+              borderRadius: '50%',
+              width: 36,
+              height: 36,
+              fontSize: 16,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              zIndex: 10
+            }}
+          >
+            {showHistoryPanel ? '✕' : '📜'}
+          </button>
+
+          {showHistoryPanel && (
+            <>
+              <div style={{ marginTop: 50 }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#333' }}>
+                  💾 履歴
+                </h3>
+                
+                {/* 現在のモードに応じて履歴を表示 */}
+                {(currentMode === 'generate' || currentMode === 'edit') && (
+                  <ImageHistoryPanel
+                    imageHistory={imageHooks.imageHistory}
+                    selectedImage={imageHooks.selectedImage}
+                    loading={imageHooks.imageHistoryLoading}
+                    onRefresh={imageHooks.handleImageHistoryRefresh}
+                    onImageSelect={imageHooks.handleImageSelect}
+                    onImageDelete={imageHooks.handleImageDelete}
+                  />
+                )}
+
+                {currentMode === 'video' && (
+                  <VideoHistoryPanel
+                    videoJobs={videoHooks.videoJobs}
+                    onDeleteJob={(jobId: string) => {
+                      const job = videoHooks.videoJobs.find(j => j.id === jobId);
+                      if (job) {
+                        videoHooks.deleteJob(job);
+                      }
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
+
+          {/* 折りたたみ時の簡易表示 */}
+          {!showHistoryPanel && isAuthenticated && (
+            <div style={{
+              position: 'absolute',
+              top: 55,
+              left: 8,
+              right: 8,
+              background: '#007acc',
+              color: 'white',
+              borderRadius: 4,
+              padding: '4px 6px',
+              fontSize: 9,
+              textAlign: 'center',
+              fontWeight: 'bold'
+            }}>
+              📜
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AppContent />
+    </MsalProvider>
+  );
+}

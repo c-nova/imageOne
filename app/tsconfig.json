@@ -22,5 +22,10 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "src/backup/**/*",
+    "**/*.backup.*",
+    "**/*.old.*"
   ]
 }

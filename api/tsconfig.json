@@ -13,11 +13,19 @@
     "recommend/*.ts",
     "list/*.ts",
     "delete/*.ts",
+    "deleteVideoJob/*.ts",
     "edit/*.ts",
     "generate/*.ts",
+    "generateVideo/*.ts",
+    "downloadVideo/*.ts",
     "history/*.ts",
     "refresh-token/*.ts",
-    "image-proxy/*.ts"
+    "image-proxy/*.ts",
+    "soraJobStatus/*.ts",
+    "videoHistory/*.ts",
+    "videoJobs/*.ts",
+    "shared/*.ts",
+    "auth/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

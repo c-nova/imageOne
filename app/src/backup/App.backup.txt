@@ -1,0 +1,363 @@
+import React, { useState } from 'react';
+import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
+import { PublicClientApplication } from '@azure/msal-browser';
+import { msalConfig } from './msalConfig';
+import { useVideoGeneration } from './hooks/useVideoGeneration';
+import { useImageGeneration } from './hooks/useImageGeneration';
+import { useImageEdit } from './hooks/useImageEdit';
+import VideoGenerationPanel from './components/VideoGenerationPanel';
+import ImageGenerationPanel from './components/ImageGenerationPanel';
+import ImageEditPanel from './components/ImageEditPanel';
+import ImageHistoryPanel from './components/ImageHistoryPanel';
+import VideoHistoryPanel from './VideoHistoryPanel';
+import './App.css';
+
+// アプリモード定義
+type AppMode = 'generate' | 'edit' | 'video';
+
+const msalInstance = new PublicClientApplication(msalConfig);
+
+function AppContent() {
+  const isAuthenticated = useIsAuthenticated();
+  const { instance } = useMsal();
+
+  // アプリモード管理
+  const [currentMode, setCurrentMode] = useState<AppMode>('generate');
+
+  // hooks を使用
+  const videoHooks = useVideoGeneration();
+  const imageHooks = useImageGeneration();
+  const editHooks = useImageEdit();
+
+  // ログインしていない場合
+  if (!isAuthenticated) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h2>🔐 ログインが必要です</h2>
+          <p>このアプリを使用するにはMicrosoft Entra IDでログインしてください。</p>
+          <button 
+            className="login-modal-btn" 
+            onClick={() => instance.loginPopup()}
+          >
+            📝 ログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // メインUI
+  return (
+    <div className="App">
+      {/* ヘッダー */}
+      <div className="header">
+        <div className="header-content">
+          <h1 className="logo">🎨 ImageOne - AI画像・動画生成</h1>
+          
+          {/* モード切り替えタブ */}
+          <div className="mode-tabs">
+            <button
+              className={`mode-tab ${currentMode === 'generate' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('generate')}
+            >
+              🎭 画像生成
+            </button>
+            <button
+              className={`mode-tab ${currentMode === 'edit' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('edit')}
+            >
+              🖼️ 画像編集
+            </button>
+            <button
+              className={`mode-tab ${currentMode === 'video' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('video')}
+            >
+              🎬 動画生成
+            </button>
+          </div>
+          
+          {/* ログアウトボタン */}
+          <button 
+            onClick={() => instance.logoutPopup()}
+            className="logout-btn"
+          >
+            🚪 ログアウト
+          </button>
+        </div>
+      </div>
+
+      {/* メインコンテンツ */}
+      <div className="content">
+        {/* 左側：パネル */}
+        <div className="main-panel">
+          {currentMode === 'generate' && (
+            <ImageGenerationPanel
+              prompt={imageHooks.prompt}
+              setPrompt={imageHooks.setPrompt}
+              originalPrompt={imageHooks.originalPrompt}
+              size={imageHooks.size}
+              setSize={imageHooks.setSize}
+              loading={imageHooks.loading}
+              generateImage={imageHooks.generateImage}
+            />
+          )}
+
+          {currentMode === 'edit' && (
+            <ImageEditPanel
+              prompt={editHooks.prompt}
+              setPrompt={editHooks.setPrompt}
+              originalPrompt={editHooks.originalPrompt}
+              size={editHooks.size}
+              setSize={editHooks.setSize}
+              loading={editHooks.loading}
+              generateImage={editHooks.generateImage}
+              image={editHooks.image}
+              setImage={editHooks.setImage}
+              imageUrl={editHooks.imageUrl}
+              setImageUrl={editHooks.setImageUrl}
+            />
+          )}
+
+          {currentMode === 'video' && (
+            <VideoGenerationPanel
+              prompt={videoHooks.prompt}
+              setPrompt={videoHooks.setPrompt}
+              originalPrompt={videoHooks.originalPrompt}
+              size={videoHooks.size}
+              setSize={videoHooks.setSize}
+              loading={videoHooks.loading}
+              generateVideo={videoHooks.generateVideo}
+            />
+          )}
+        </div>
+
+        {/* 右側：履歴パネル */}
+        <div className="history-panel">
+          {currentMode === 'generate' && (
+            <ImageHistoryPanel
+              images={imageHooks.images}
+              onDelete={imageHooks.deleteImage}
+            />
+          )}
+
+          {currentMode === 'edit' && (
+            <ImageHistoryPanel
+              images={editHooks.images}
+              onDelete={editHooks.deleteImage}
+            />
+          )}
+
+          {currentMode === 'video' && (
+            <VideoHistoryPanel
+              videoJobs={videoHooks.videoJobs}
+              onDeleteJob={videoHooks.deleteVideoJob}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AppContent />
+    </MsalProvider>
+  );
+}
+              loadingRec={imageHooks.loadingRec}
+              recommendedPrompt={imageHooks.recommendedPrompt}
+              cameraSettings={imageHooks.cameraSettings}
+              setCameraSettings={imageHooks.setCameraSettings}
+              onImageGenerate={imageHooks.handleImageGenerate}
+              onGenerateRecommended={imageHooks.generateRecommendedPrompt}
+              onUseRecommendedPrompt={imageHooks.useRecommendedPrompt}
+            />
+          )}
+          
+          {currentMode === 'edit' && (
+            <ImageEditPanel
+              editPrompt={editHooks.editPrompt}
+              setEditPrompt={editHooks.setEditPrompt}
+              uploadedImage={editHooks.uploadedImage}
+              editedImage={editHooks.editedImage}
+              loading={editHooks.loading}
+              detectedSize={editHooks.detectedSize}
+              canvasRef={editHooks.canvasRef}
+              isDrawing={editHooks.isDrawing}
+              hasMask={editHooks.hasMask}
+              onImageUpload={editHooks.handleImageUpload}
+              onImageEdit={editHooks.handleImageEdit}
+              onResetEdit={editHooks.resetEdit}
+              startDrawing={editHooks.startDrawing}
+              draw={editHooks.draw}
+              stopDrawing={editHooks.stopDrawing}
+              clearMask={editHooks.clearMask}
+            />
+          )}
+          
+          {currentMode === 'video' && (
+            <VideoGenerationPanel
+              videoPrompt={videoHooks.videoPrompt}
+              setVideoPrompt={videoHooks.setVideoPrompt}
+              videoAspectRatio={videoHooks.videoAspectRatio}
+              setVideoAspectRatio={videoHooks.setVideoAspectRatio}
+              videoResolution={videoHooks.videoResolution}
+              setVideoResolution={videoHooks.setVideoResolution}
+              videoDuration={videoHooks.videoDuration}
+              setVideoDuration={videoHooks.setVideoDuration}
+              videoVariation={videoHooks.videoVariation}
+              setVideoVariation={videoHooks.setVideoVariation}
+              videoLoading={videoHooks.videoLoading}
+              loadingRec={videoHooks.loadingRec}
+              recommendedPrompt={videoHooks.recommendedPrompt}
+              onVideoGenerate={videoHooks.handleVideoGenerate}
+              onGenerateRecommended={videoHooks.generateRecommendedVideo}
+              onUseRecommendedPrompt={videoHooks.useRecommendedPrompt}
+            />
+          )}
+
+          {/* 生成結果表示 */}
+          {currentMode === 'generate' && imageHooks.generatedImage && (
+            <div className="generated-image-section">
+              <h3>✨ 生成された画像</h3>
+              <img 
+                src={imageHooks.generatedImage} 
+                alt="生成された画像" 
+                className="generated-image"
+                onClick={() => imageHooks.handleImageSelect({ 
+                  id: 'current',
+                  prompt: imageHooks.prompt,
+                  imageUrl: imageHooks.generatedImage!,
+                  operationType: 'generate',
+                  size: imageHooks.size,
+                  timestamp: new Date().toISOString()
+                })}
+              />
+            </div>
+          )}
+          
+          {currentMode === 'edit' && editHooks.editedImage && (
+            <div className="edited-image-section">
+              <h3>🎨 編集結果</h3>
+              <img 
+                src={editHooks.editedImage} 
+                alt="編集された画像" 
+                className="edited-image"
+              />
+            </div>
+          )}
+
+          {/* 選択された画像の詳細表示 */}
+          {(currentMode === 'generate' || currentMode === 'edit') && imageHooks.selectedImage && (
+            <div className="selected-image-section">
+              <div className="image-player-header">
+                <h3>🖼️ 選択中の画像</h3>
+                <button 
+                  className="close-btn"
+                  onClick={() => imageHooks.handleImageSelect(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="large-image-container">
+                <img 
+                  src={imageHooks.selectedImage.imageUrl} 
+                  alt={imageHooks.selectedImage.prompt}
+                  className="large-image"
+                />
+                <div className="large-image-info">
+                  <div className="image-prompt">
+                    <strong>📝 プロンプト:</strong> {imageHooks.selectedImage.prompt}
+                  </div>
+                  <div className="image-details">
+                    📐 {imageHooks.selectedImage.size} • 
+                    {imageHooks.selectedImage.operationType === 'generate' ? '🎨 生成' : '✏️ 編集'} • 
+                    🕒 {new Date(imageHooks.selectedImage.timestamp).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 動画プレイヤー */}
+          {currentMode === 'video' && videoHooks.selectedVideo && (
+            <div className="video-player-section">
+              <div className="video-player-header">
+                <h3>▶️ 再生中の動画</h3>
+                <button 
+                  className="close-btn"
+                  onClick={() => videoHooks.handleVideoSelect(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="large-video-player-container">
+                <video 
+                  controls 
+                  className="large-video-player"
+                  key={videoHooks.selectedVideo.id}
+                  autoPlay
+                >
+                  <source src={videoHooks.selectedVideo.videoUrl} type="video/mp4" />
+                  お使いのブラウザは動画再生をサポートしていません。
+                </video>
+                <div className="large-video-player-info">
+                  <div className="video-player-prompt">
+                    <strong>📝 プロンプト:</strong> {videoHooks.selectedVideo.prompt}
+                  </div>
+                  <div className="video-player-details">
+                    📐 {videoHooks.selectedVideo.videoSettings.width}×{videoHooks.selectedVideo.videoSettings.height} • 
+                    ⏱️ {videoHooks.selectedVideo.videoSettings.n_seconds}秒
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 右側：履歴パネル */}
+        <div className="side-panel">
+          <h3>
+            {currentMode === 'video' ? '🎬 動画履歴' : '💾 プロンプト履歴'}
+          </h3>
+          
+          {(currentMode === 'generate' || currentMode === 'edit') && (
+            <ImageHistoryPanel
+              imageHistory={imageHooks.imageHistory}
+              selectedImage={imageHooks.selectedImage}
+              loading={imageHooks.imageHistoryLoading}
+              onRefresh={imageHooks.handleImageHistoryRefresh}
+              onImageSelect={imageHooks.handleImageSelect}
+              onImageDelete={imageHooks.handleImageDelete}
+            />
+          )}
+          
+          {currentMode === 'video' && (
+            <VideoHistoryPanel
+              videoJobs={videoHooks.videoJobs}
+              onDeleteJob={(jobId: string) => {
+                const job = videoHooks.videoJobs.find(j => j.id === jobId);
+                if (job) {
+                  videoHooks.deleteJob(job);
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AppContent />
+    </MsalProvider>
+  );
+}
+
+export default App;

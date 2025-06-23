@@ -11,15 +11,24 @@ const kvName = process.env.KeyVaultName!;
 const kvUrl = `https://${kvName}.vault.azure.net`;
 const secretClient = new SecretClient(kvUrl, credential);
 
-const OPENAI_IMAGE_DEPLOYMENT_NAME = "GPT-Image-1";
+let OPENAI_IMAGE_DEPLOYMENT_NAME: string | null = null;
+let OPENAI_API_VERSION: string | null = null;
 let openAIClient: AzureOpenAI | null = null;
 async function getOpenAIClient() {
   if (openAIClient) return openAIClient;
   const endpointSecret = await secretClient.getSecret("OpenAI-Endpoint");
   const endpoint = endpointSecret.value!;
+  if (!OPENAI_IMAGE_DEPLOYMENT_NAME) {
+    const deploymentSecret = await secretClient.getSecret("OpenAI-Deployment");
+    OPENAI_IMAGE_DEPLOYMENT_NAME = deploymentSecret.value!;
+  }
+  if (!OPENAI_API_VERSION) {
+    const apiVersionSecret = await secretClient.getSecret("OpenAI-ApiVersion");
+    OPENAI_API_VERSION = apiVersionSecret.value!;
+  }
   openAIClient = new AzureOpenAI({
     endpoint,
-    apiVersion: "2025-04-01-preview",
+    apiVersion: OPENAI_API_VERSION,
     deployment: OPENAI_IMAGE_DEPLOYMENT_NAME,
     azureADTokenProvider: async () => {
       const tokenResponse = await credential.getToken("https://cognitiveservices.azure.com/.default");

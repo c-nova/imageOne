@@ -34,3 +34,10 @@
    * App Insights（関数ロギング）
    * Storage ライフサイクル設定（生成画像の自動削除）
    * コスト監視／スケール設定
+
+---
+
+Note (2025-06-10 ギャル追記):
+新規エンドポイント generateVideo, soraJobStatus が Azure Functions ローカルで認識されない問題、function.json の scriptFile が index.ts になっててビルド後の JS を参照できてなかったのが原因！
+→ scriptFile を "../dist/generateVideo/index.js" と "../dist/soraJobStatus/index.js" に修正して解決！
+ビルド＆ホスト再起動で無事エンドポイント出現！マジでスッキリした～！

@@ -36,21 +36,47 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
   }
 
   // --- JSONで受信 ---
-  const { prompt, size, actualSize, imageBase64, maskBase64, originalPrompt, cameraSettings } = req.body || {};
+  const { prompt, size, actualSize, actualWidth, actualHeight, imageBase64, maskBase64, originalPrompt, cameraSettings } = req.body || {};
   if (!imageBase64) {
     context.res = { status: 400, body: { error: "画像編集にはimageBase64が必須だよ！" } };
     return;
   }
 
-  // 編集モードでは actualSize のみを使用（size は無視）
-  const usedSize = actualSize || "1024x1024"; // デフォルト値
+  // 実際の画像サイズを優先使用、次にactualSize、最後にデフォルト
+  let usedSize: string;
+  let usedWidth: number;
+  let usedHeight: number;
+
+  if (actualWidth && actualHeight) {
+    // 実際のピクセル値が提供された場合
+    usedWidth = actualWidth;
+    usedHeight = actualHeight;
+    usedSize = `${usedWidth}x${usedHeight}`;
+    context.log(`📐 実際のピクセル値使用: ${usedSize}`);
+  } else if (actualSize) {
+    // actualSizeが提供された場合
+    const [w, h] = actualSize.split('x').map(Number);
+    usedWidth = w;
+    usedHeight = h;
+    usedSize = actualSize;
+    context.log(`📐 actualSize使用: ${usedSize}`);
+  } else {
+    // デフォルト値（互換性のため）
+    usedSize = "1024x1024";
+    usedWidth = 1024;
+    usedHeight = 1024;
+    context.log(`📐 デフォルトサイズ使用: ${usedSize}`);
+  }
+  
   const startTime = Date.now(); // 処理時間計測開始
   
   context.log(`🎯 編集リクエスト受信詳細:`);
   context.log(`  - prompt: ${prompt}`);
   context.log(`  - size (フロントエンド): ${size || 'undefined'}`);
   context.log(`  - actualSize (検出値): ${actualSize}`);
+  context.log(`  - actualWidth x actualHeight: ${actualWidth} x ${actualHeight}`);
   context.log(`  - usedSize (最終使用): ${usedSize}`);
+  context.log(`  - usedWidth x usedHeight: ${usedWidth} x ${usedHeight}`);
   context.log(`  - hasMask: ${!!maskBase64}`);
 
   try {
@@ -69,11 +95,15 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     formData.append('image', imageBuffer, { filename: 'image.png', contentType: 'image/png' });
     
+    // 画像サイズをログ出力（デバッグ用）
+    context.log(`📊 送信画像データサイズ: ${imageBuffer.length} bytes`);
+    
     // マスクを追加（必須パラメータ）
     if (maskBase64) {
       const maskBuffer = Buffer.from(maskBase64, 'base64');
       formData.append('mask', maskBuffer, { filename: 'mask.png', contentType: 'image/png' });
       context.log('🎭 マスクが提供されました');
+      context.log(`📊 送信マスクデータサイズ: ${maskBuffer.length} bytes`);
     } else {
       context.log('⚠️ マスクが提供されていません - Azure OpenAI Image Edit APIにはマスクが必須です');
       context.res = { status: 400, body: { error: "画像編集にはマスクが必須です。フロントエンドでマスク生成を確認してください。" } };
@@ -102,14 +132,15 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     }
     formData.append('model', 'gpt-image-1'); // 必須パラメータ追加
     formData.append('n', '1');
-    formData.append('size', usedSize);
+    formData.append('size', usedSize); // 実際のサイズを使用
     // response_formatは削除（GPT-image-1では未サポート）
     formData.append('quality', 'high'); // オプション：高品質設定
 
     context.log("🎨 最新GPT-image-1での画像編集リクエスト送信開始");
     context.log(`  Endpoint: ${endpoint}/openai/deployments/${deploymentId}/images/edits`);
     context.log(`  Model: gpt-image-1`);
-    context.log(`  Size: ${usedSize}`);
+    context.log(`  Size: ${usedSize} (実際のピクセルサイズ)`);
+    context.log(`  Width x Height: ${usedWidth} x ${usedHeight}`);
     context.log(`  Has mask: ${!!maskBase64}`);
 
     // 最新HTTP API（GPT-image-1 編集API）を使用
@@ -176,7 +207,9 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
         userId: userInfo.userId,
         prompt: cleanPrompt,
         editedAt: new Date().toISOString(),
-        originalSize: usedSize,
+        originalSize: usedSize, // 実際のサイズを記録
+        actualWidth: usedWidth.toString(),
+        actualHeight: usedHeight.toString(),
         operationType: 'edit'
       }
     });
@@ -201,12 +234,15 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
         imageUrl: outputBlobUrl,
         imageBlobPath: userBlobPath,
         operationType: 'edit',
-        size: usedSize,
+        size: usedSize, // 実際のサイズを記録
         timestamp: new Date().toISOString(),
         metadata: {
           userAgent: req.headers['user-agent'],
           processingTime: processingTime,
-          hasMask: !!maskBase64
+          hasMask: !!maskBase64,
+          actualWidth: usedWidth,
+          actualHeight: usedHeight,
+          originalDetectedSize: size // 元の検出サイズも保持
         }
       };
       

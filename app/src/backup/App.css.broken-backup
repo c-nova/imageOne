@@ -1,0 +1,1507 @@
+/* 🎨 ImageOne - AI画像生成＆編集アプリのモダンスタイル */
+
+/* ===== ベースリセット & グローバル設定 ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+}
+
+.App {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== キラキラアニメーション ===== */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 4px 15px rgba(255,255,255,0.2);
+  }
+  50% {
+    box-shadow: 0 4px 25px rgba(255,255,255,0.4);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes rainbow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes starTwinkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8) rotate(0deg);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.2) rotate(90deg);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1) rotate(180deg);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1.1) rotate(270deg);
+  }
+}
+
+@keyframes magicSparkle {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+    background: radial-gradient(circle, #ff6b6b, #4ecdc4);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1) rotate(90deg);
+    background: radial-gradient(circle, #45b7d1, #96ceb4);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.2) rotate(180deg);
+    background: radial-gradient(circle, #f093fb, #f5576c);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(0.9) rotate(270deg);
+    background: radial-gradient(circle, #4facfe, #00f2fe);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0) rotate(360deg);
+    background: radial-gradient(circle, #a8edea, #fed6e3);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+  25% {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  }
+  75% {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  }
+  100% {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+}
+
+/* ===== レイアウトコンテナ ===== */
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+/* ===== モードタブ（ヘッダー） ===== */
+.mode-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px 16px 16px 16px;
+  border-radius: 0 0 20px 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.mode-tabs::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
+  animation: shimmer 3s infinite;
+  pointer-events: none;
+}
+
+.mode-tab {
+  background: rgba(255,255,255,0.1);
+  color: white;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 12px;
+  padding: 12px 24px;
+  margin: 0 6px;
+  font-weight: 500;
+  cursor: pointer;
+  fontSize: 16px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 2;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.mode-tab::before {
+  content: '✨';
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  font-size: 12px;
+  opacity: 0;
+  transition: all 0.3s ease;
+  animation: starTwinkle 2s infinite;
+}
+
+.mode-tab::after {
+  content: '💫';
+  position: absolute;
+  bottom: -20px;
+  right: -20px;
+  font-size: 12px;
+  opacity: 0;
+  transition: all 0.3s ease;
+  animation: starTwinkle 2s infinite reverse;
+}
+
+.mode-tab:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.4);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 25px rgba(255,255,255,0.2);
+  animation: pulse 1s infinite;
+}
+
+.mode-tab:hover::before,
+.mode-tab:hover::after {
+  opacity: 1;
+  top: 5px;
+  left: 5px;
+  bottom: 5px;
+  right: 5px;
+}
+
+.mode-tab.active {
+  background: linear-gradient(135deg, rgba(255,255,255,0.3), rgba(255,255,255,0.1));
+  border: 2px solid rgba(255,255,255,0.5);
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 0 30px rgba(255,255,255,0.4);
+  animation: glow 2s infinite, gradientShift 8s infinite;
+  position: relative;
+}
+
+.mode-tab.active::before {
+  content: '🌟';
+  position: absolute;
+  top: 50%;
+  left: -15px;
+  transform: translateY(-50%);
+  font-size: 16px;
+  opacity: 1;
+  animation: rotate 3s infinite linear;
+}
+
+.mode-tab.active::after {
+  content: '🌟';
+  position: absolute;
+  top: 50%;
+  right: -15px;
+  transform: translateY(-50%);
+  font-size: 16px;
+  opacity: 1;
+  animation: rotate 3s infinite linear reverse;
+}
+
+/* ===== メインコンテンツエリア ===== */
+.main-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 20px;
+  padding: 0 20px 20px 20px;
+}
+
+/* ===== 左側パネル ===== */
+.left {
+  flex: 2;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 右側履歴パネル ===== */
+.right {
+  flex: 1;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  overflow: hidden;
+  min-width: 300px;
+  max-width: 400px;
+}
+  height: 100vh;
+}
+
+/* Left pane: two rows */
+.left {
+  flex: 1 1 0%;
+  min-width: 320px;
+  max-width: 100%;
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  background: #fafaff;
+  border-right: 1px solid #eee;
+  box-sizing: border-box;
+}
+.top {
+  flex: 0 0 320px;
+  padding: 16px 16px 16px 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #eee;
+}
+.bottom {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 8px 16px;
+  box-sizing: border-box;
+}
+
+/* Thumbnails pane */
+.thumbnails-pane {
+  height: 192px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.thumbnail-wrapper {
+  position: relative;
+  width: 88px;
+  height: 88px;
+}
+.thumbnail-wrapper img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1.5px solid #ccc;
+  cursor: pointer;
+}
+.thumbnail-wrapper img.selected {
+  border: 2px solid #f0a;
+}
+.use-as-img2img {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-size: 10px;
+  padding: 2px 4px;
+  background: #fff8;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.delete-thumb {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 12px;
+  padding: 2px 4px;
+  background: #f44;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Right pane: video history */
+.right {
+  flex: 0 0 auto;
+  width: 400px;
+  max-width: 400px;
+  min-width: 300px;
+  padding: 16px;
+  overflow-y: auto;
+  min-width: 0;
+  background: #fff;
+  border-left: 1px solid #eee;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.prompt-history-pane li {
+  white-space: pre-line;
+  word-break: break-all;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  max-width: 100%;
+}
+
+/* Textarea and controls */
+.top textarea {
+  width: 100%;
+  height: 60px;
+  margin-bottom: 8px;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.top button, .top select {
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.recommendation {
+  font-style: italic;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+/* Pagination controls */
+.pagination {
+  text-align: center;
+  margin-top: 10px;
+}
+.pagination button {
+  margin: 0 4px;
+}
+
+/* Prompt history list */
+.right ul {
+  list-style: none;
+  padding: 0;
+}
+.right li {
+  padding: 4px 0;
+  border-bottom: 1px solid #ddd;
+}
+
+/* Preview area */
+.preview {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #f9f9f9;
+}
+.preview img {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* make sure html, body fill viewport */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+.loading-bar {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: #e0e0e0;
+  overflow: hidden;
+  border-radius: 2px;
+  margin-top: 8px;
+}
+.loading-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #0078d4;
+  animation: loading 2s ease-in-out infinite;
+}
+@keyframes loading {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.upload-block {
+  margin-bottom: 12px;
+}
+.upload-preview {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-preview img {
+  max-width: 120px;
+  max-height: 120px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.use-as-img2img {
+  display: block;
+  margin: 4px auto 8px auto;
+  font-size: 0.8em;
+  padding: 2px 8px;
+  background: #e0eaff;
+  border: 1px solid #0078d4;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.use-as-img2img:hover {
+  background: #cce0ff;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  z-index: 9999;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px 32px 32px 32px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  text-align: center;
+  min-width: 320px;
+}
+.login-modal-btn {
+  background: #f0a; color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.2em;
+  padding: 12px 32px;
+  margin-top: 24px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.login-modal-btn:hover {
+  background: #c06;
+}
+
+/* 🎬 動画履歴パネルのスタイル */
+.video-history-panel {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+  border: 1px solid #e0e0e0;
+}
+
+.video-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.video-history-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.refresh-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #005999;
+}
+
+.refresh-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* アクティブジョブセクション */
+.active-jobs-section {
+  margin-bottom: 20px;
+}
+
+.active-jobs-section h4 {
+  margin: 0 0 12px 0;
+  color: #666;
+  font-size: 16px;
+}
+
+.active-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.active-job-item {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 12px;
+  border-left: 4px solid #ff9500;
+}
+
+.job-status {
+  font-weight: bold;
+  color: #ff9500;
+  margin-bottom: 4px;
+}
+
+.job-prompt {
+  color: #333;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.job-details {
+  color: #666;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.job-error {
+  color: #d32f2f;
+  font-size: 12px;
+  background: #ffebee;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+/* 完成動画セクション */
+.completed-videos-section h4 {
+  margin: 0 0 12px 0;
+  color: #666;
+  font-size: 16px;
+}
+
+.loading-state, .empty-state {
+  text-align: center;
+  color: #95a5a6;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
+  border: 2px dashed #dee2e6;
+  margin: 20px 0;
+}
+
+.empty-state {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border-color: #f39c12;
+  color: #d68910;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.video-item {
+  background: white;
+  border: 2px solid #e9ecef;
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.video-item:hover {
+  border-color: #007acc;
+  box-shadow: 0 4px 20px rgba(0, 122, 204, 0.15);
+  transform: translateY(-2px);
+}
+
+.video-item.selected {
+  border-color: #007acc;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+  box-shadow: 0 6px 25px rgba(0, 122, 204, 0.25);
+  transform: translateY(-3px);
+}
+
+.video-item.selected::before {
+  content: '▶️ 再生中';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #007acc;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.video-thumbnail {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.video-placeholder {
+  width: 100%;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 32px;
+  color: #ccc;
+}
+
+.video-info {
+  text-align: left;
+}
+
+.video-prompt {
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 4px;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.video-meta {
+  color: #666;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.video-date {
+  color: #999;
+  font-size: 11px;
+}
+
+/* 動画プレイヤーセクション */
+.video-player-section {
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  color: white;
+}
+
+.video-player-section h4 {
+  margin: 0 0 16px 0;
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.video-player-container {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.video-player {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 400px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.video-player-info {
+  text-align: left;
+  color: #333;
+}
+
+.video-player-prompt {
+  color: #2c3e50;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  background: rgba(52, 152, 219, 0.1);
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 4px solid #3498db;
+}
+
+.video-player-prompt strong {
+  color: #2980b9;
+  font-weight: 600;
+}
+
+.video-player-details {
+  color: #7f8c8d;
+  font-size: 14px;
+  background: rgba(236, 240, 241, 0.8);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+/* 🎬 大画面動画プレイヤー */
+.video-player-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin: 10px;
+  border-radius: 12px;
+  padding: 15px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.video-player-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.video-player-header h3 {
+  color: white;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.large-video-player-container {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.large-video-player {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 2px solid #007acc;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.large-video-player-info {
+  margin-top: 15px;
+}
+
+.video-player-prompt {
+  background: #f8f9fa;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  border-left: 4px solid #007acc;
+}
+
+.video-player-details {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+.video-player-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.download-btn {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.download-btn:hover {
+  background: #218838;
+}
+
+/* 🎬 ミニ動画ジョブパネル（動画プレイヤー表示時用） */
+.mini-jobs-panel {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px;
+  border: 1px solid #e9ecef;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.mini-jobs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.mini-jobs-header h4 {
+  margin: 0;
+  color: #495057;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.mini-jobs-summary {
+  background: #007acc;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ミニアクティブジョブ */
+.mini-active-jobs {
+  margin-bottom: 12px;
+}
+
+.mini-active-job-item {
+  background: white;
+  border: 1px solid #ff9500;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid #ff9500;
+}
+
+.mini-job-status {
+  font-weight: 600;
+  color: #ff9500;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.mini-job-prompt {
+  color: #333;
+  font-size: 13px;
+  line-height: 1.3;
+  margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mini-job-time {
+  color: #6c757d;
+  font-size: 11px;
+}
+
+/* ミニ完成動画リスト */
+.mini-completed-videos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mini-video-item {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: calc(50% - 3px);
+  min-width: 120px;
+}
+
+.mini-video-item:hover {
+  border-color: #007acc;
+  box-shadow: 0 2px 8px rgba(0, 122, 204, 0.15);
+}
+
+.mini-video-item.selected {
+  border-color: #007acc;
+  background: #e6f3ff;
+}
+
+.mini-video-thumbnail {
+  width: 100%;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.mini-video-placeholder {
+  width: 100%;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-size: 20px;
+  color: #ccc;
+}
+
+.mini-video-prompt {
+  font-size: 11px;
+  color: #495057;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.mini-video-date {
+  font-size: 10px;
+  color: #6c757d;
+}
+
+/* 空の状態用 */
+.mini-empty-state {
+  text-align: center;
+  color: #6c757d;
+  font-size: 13px;
+  padding: 20px;
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border-radius: 8px;
+  border: 1px dashed #f39c12;
+}
+
+/* 2カラムレイアウト: 動画プレイヤー + ジョブリスト */
+.bottom-content {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.video-player-section {
+  flex: 0 0 60%;
+  min-width: 400px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 20px;
+  color: white;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.video-player-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.video-player-header h3 {
+  margin: 0;
+  color: white;
+  font-size: 18px;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.video-jobs-section {
+  transition: all 0.3s ease;
+}
+
+.video-jobs-section.with-player {
+  flex: 1;
+  min-width: 300px;
+}
+
+.video-jobs-section.without-player {
+  flex: 1;
+  min-width: 400px;
+}
+
+.video-jobs-panel {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  height: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow-y: auto;
+}
+
+.video-jobs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.video-jobs-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
+}
+
+.refresh-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #005aa0;
+}
+
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.job-item {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.job-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.job-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.job-main {
+  flex: 1;
+}
+
+.job-status {
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.job-prompt {
+  color: #555;
+  margin-bottom: 4px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.job-details {
+  color: #777;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.job-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.process-btn {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.process-btn:hover {
+  background: #218838;
+}
+
+.delete-job-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: 8px;
+  transition: background-color 0.2s;
+}
+
+.delete-job-btn:hover {
+  background: #c82333;
+}
+
+.cancel-job-btn {
+  background: #ffc107;
+  color: #212529;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.cancel-job-btn:hover {
+  background: #e0a800;
+}
+
+.job-thumbnail {
+  flex: 0 0 auto;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 40px 20px;
+  font-style: italic;
+}
+
+/* 🎛️ モダンなタブバー（上部固定） */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.mode-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  overflow: hidden;
+}
+
+.mode-tab {
+  position: relative;
+  padding: 16px 32px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 3px solid transparent;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.mode-tab:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+.mode-tab.active {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  border-bottom-color: #00d4ff;
+  box-shadow: inset 0 -3px 0 #00d4ff;
+}
+
+.mode-tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* 📱 メインコンテンツエリア */
+.main-content {
+  display: flex;
+  flex: 1;
+  height: calc(100vh - 70px); /* ヘッダーの高さを考慮 */
+  background: #f8f9fa;
+}
+
+/* メインコンテンツエリア */
+.main-content {
+  display: flex;
+  flex: 1;
+  height: calc(100vh - 80px); /* タブの高さを考慮 */
+}
+
+/* 画像関連のスタイル */
+.generated-image,
+.edited-image,
+.large-image {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-bottom: 16px;
+}
+
+.generated-image-section,
+.edited-image-section,
+.selected-image-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.image-player-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.image-player-header h3 {
+  margin: 0;
+  color: #007acc;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.large-image-container {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.large-image-info {
+  margin-top: 15px;
+}
+
+.image-prompt {
+  background: #f8f9fa;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  border-left: 4px solid #007acc;
+}
+
+.image-details {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+/* 結果表示エリア */
+.result-area {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* 編集結果比較 */
+.result-comparison {
+  margin-top: 16px;
+}
+
+.before-after {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-container {
+  flex: 1;
+  text-align: center;
+}
+
+.image-container h4 {
+  margin: 0 0 12px 0;
+  color: #495057;
+  font-size: 16px;
+}
+
+.result-image {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.arrow {
+  font-size: 24px;
+  color: #007acc;
+  font-weight: bold;
+}
+
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+/* 🎨 ガラスモーフィズム効果 */
+.glass {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+}
+
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}

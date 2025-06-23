@@ -135,3 +135,5 @@ export function maskUserInfo(userInfo: UserInfo): Partial<UserInfo> {
     tenantId: userInfo.tenantId
   };
 }
+
+export { getClientId, getTenantId };

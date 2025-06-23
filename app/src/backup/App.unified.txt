@@ -1,0 +1,476 @@
+// App.tsx - 統合版: 画像生成・編集・動画生成の3モード切り替え
+import React, { useState } from 'react';
+import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
+import { PublicClientApplication } from '@azure/msal-browser';
+import { msalConfig } from './msalConfig';
+import { useVideoGeneration } from './hooks/useVideoGeneration';
+import { useImageGeneration } from './hooks/useImageGeneration';
+import { useImageEdit } from './hooks/useImageEdit';
+import { VideoJob } from './types';
+import VideoGenerationPanel from './components/VideoGenerationPanel';
+import ImageGenerationPanel from './components/ImageGenerationPanel';
+import ImageEditPanel from './components/ImageEditPanel';
+import VideoHistoryPanel from './VideoHistoryPanel';
+import ImageHistoryPanel from './components/ImageHistoryPanel';
+import './App.css';
+
+// アプリモード定義
+type AppMode = 'image-generation' | 'image-edit' | 'video-generation';
+
+const msalInstance = new PublicClientApplication(msalConfig);
+
+function AuthButtons() {
+  const { instance } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+
+  if (isAuthenticated) {
+    return (
+      <div style={{ 
+        position: 'absolute', 
+        top: '10px', 
+        right: '10px', 
+        zIndex: 1000 
+      }}>
+        <button 
+          onClick={() => instance.logoutPopup()}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#d32f2f',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          ログアウト
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function AppContent() {
+  const isAuthenticated = useIsAuthenticated();
+  const { instance } = useMsal();
+
+  // アプリモード管理
+  const [currentMode, setCurrentMode] = useState<AppMode>('image-generation');
+
+  // 🎬 動画生成関連のhookを使用
+  const videoHooks = useVideoGeneration();
+
+  // 🎭 画像生成関連のhookを使用
+  const imageHooks = useImageGeneration();
+
+  // 🖼️ 画像編集関連のhookを使用
+  const editHooks = useImageEdit();
+
+  // ログインしてなければモーダル表示
+  if (!isAuthenticated) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h2>ログインが必要だよ！</h2>
+          <p>このアプリを使うにはMicrosoft Entra IDでログインしてね！</p>
+          <button 
+            className="login-modal-btn" 
+            onClick={() => instance.loginPopup()}
+          >
+            ログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // メインUI
+  return (
+    <div className="container">
+      {/* 上部：モード切り替えタブ */}
+      <div className="mode-tabs">
+        <button
+          className={`mode-tab ${currentMode === 'image-generation' ? 'active' : ''}`}
+          onClick={() => setCurrentMode('image-generation')}
+        >
+          🎭 画像生成
+        </button>
+        <button
+          className={`mode-tab ${currentMode === 'image-edit' ? 'active' : ''}`}
+          onClick={() => setCurrentMode('image-edit')}
+        >
+          🖼️ 画像編集
+        </button>
+        <button
+          className={`mode-tab ${currentMode === 'video-generation' ? 'active' : ''}`}
+          onClick={() => setCurrentMode('video-generation')}
+        >
+          🎬 動画生成
+        </button>
+      </div>
+
+      {/* メインコンテンツエリア */}
+      <div className="main-content">
+        {/* 左側：各モードのパネル */}
+        <div className="left">
+          {currentMode === 'image-generation' && (
+            <ImageGenerationPanel
+              prompt={imageHooks.prompt}
+              setPrompt={imageHooks.setPrompt}
+              originalPrompt={imageHooks.originalPrompt}
+              size={imageHooks.size}
+              setSize={imageHooks.setSize}
+              loading={imageHooks.loading}
+              loadingRec={imageHooks.loadingRec}
+              recommendedPrompt={imageHooks.recommendedPrompt}
+              cameraSettings={imageHooks.cameraSettings}
+              setCameraSettings={imageHooks.setCameraSettings}
+              onImageGenerate={imageHooks.handleImageGenerate}
+              onGenerateRecommended={imageHooks.generateRecommendedPrompt}
+              onUseRecommendedPrompt={imageHooks.useRecommendedPrompt}
+            />
+          )}
+          
+          {currentMode === 'image-edit' && (
+            <ImageEditPanel
+              editPrompt={editHooks.editPrompt}
+              setEditPrompt={editHooks.setEditPrompt}
+              uploadedImage={editHooks.uploadedImage}
+              editedImage={editHooks.editedImage}
+              loading={editHooks.loading}
+              detectedSize={editHooks.detectedSize}
+              canvasRef={editHooks.canvasRef}
+              isDrawing={editHooks.isDrawing}
+              hasMask={editHooks.hasMask}
+              onImageUpload={editHooks.handleImageUpload}
+              onImageEdit={editHooks.handleImageEdit}
+              onResetEdit={editHooks.resetEdit}
+              startDrawing={editHooks.startDrawing}
+              draw={editHooks.draw}
+              stopDrawing={editHooks.stopDrawing}
+              clearMask={editHooks.clearMask}
+            />
+          )}
+          
+          {currentMode === 'video-generation' && (
+            <VideoGenerationPanel
+              videoPrompt={videoHooks.videoPrompt}
+              setVideoPrompt={videoHooks.setVideoPrompt}
+              videoAspectRatio={videoHooks.videoAspectRatio}
+              setVideoAspectRatio={videoHooks.setVideoAspectRatio}
+              videoResolution={videoHooks.videoResolution}
+              setVideoResolution={videoHooks.setVideoResolution}
+              videoDuration={videoHooks.videoDuration}
+              setVideoDuration={videoHooks.setVideoDuration}
+              videoVariation={videoHooks.videoVariation}
+              setVideoVariation={videoHooks.setVideoVariation}
+              videoLoading={videoHooks.videoLoading}
+              loadingRec={videoHooks.loadingRec}
+              recommendedPrompt={videoHooks.recommendedPrompt}
+              onVideoGenerate={videoHooks.handleVideoGenerate}
+              onGenerateRecommended={videoHooks.generateRecommendedVideo}
+              onUseRecommendedPrompt={videoHooks.useRecommendedPrompt}
+            />
+          )}
+
+          {/* 結果表示エリア */}
+          <div className="result-area">
+            {/* 画像生成結果 */}
+            {currentMode === 'image-generation' && imageHooks.generatedImage && (
+              <div className="generated-image-section">
+                <h3>✨ 生成された画像</h3>
+                <img src={imageHooks.generatedImage} alt="生成された画像" className="generated-image" />
+              </div>
+            )}
+            
+            {/* 画像編集結果 */}
+            {currentMode === 'image-edit' && editHooks.editedImage && (
+              <div className="edited-image-section">
+                <h3>🎨 編集結果</h3>
+                <img src={editHooks.editedImage} alt="編集された画像" className="edited-image" />
+              </div>
+            )}
+
+            {/* 選択中の画像表示 */}
+            {(currentMode === 'image-generation' || currentMode === 'image-edit') && imageHooks.selectedImage && (
+              <div className="selected-image-section">
+                <div className="image-player-header">
+                  <h3>🖼️ 選択中の画像</h3>
+                  <button 
+                    className="close-btn"
+                    onClick={() => imageHooks.handleImageSelect(null)}
+                    title="画像ビューアを閉じる"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="large-image-container">
+                  <img 
+                    src={imageHooks.selectedImage.imageUrl} 
+                    alt={imageHooks.selectedImage.prompt}
+                    className="large-image"
+                  />
+                  <div className="large-image-info">
+                    <div className="image-prompt">
+                      <strong>📝 プロンプト:</strong> {imageHooks.selectedImage.prompt}
+                    </div>
+                    <div className="image-details">
+                      📐 {imageHooks.selectedImage.size} • 
+                      {imageHooks.selectedImage.operationType === 'generate' ? '🎨 生成' : '✏️ 編集'} • 
+                      🕒 {new Date(imageHooks.selectedImage.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 動画プレイヤー */}
+            {currentMode === 'video-generation' && videoHooks.selectedVideo && (
+              <div className="video-player-section">
+                <div className="video-player-header">
+                  <h3>▶️ 再生中の動画</h3>
+                  <button 
+                    className="close-btn"
+                    onClick={() => videoHooks.handleVideoSelect(null)}
+                    title="動画プレイヤーを閉じる"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="large-video-player-container">
+                  <video 
+                    controls 
+                    className="large-video-player"
+                    key={videoHooks.selectedVideo.id}
+                    autoPlay
+                    style={{
+                      width: '100%',
+                      maxWidth: '100%',
+                      height: 'auto',
+                      borderRadius: '8px',
+                      border: '2px solid #007acc'
+                    }}
+                  >
+                    <source src={videoHooks.selectedVideo.videoUrl} type="video/mp4" />
+                    お使いのブラウザは動画再生をサポートしていません。
+                  </video>
+                  <div className="large-video-player-info">
+                    <div className="video-player-prompt">
+                      <strong>📝 プロンプト:</strong> {videoHooks.selectedVideo.prompt}
+                    </div>
+                    <div className="video-player-details">
+                      📐 {videoHooks.selectedVideo.videoSettings.width}×{videoHooks.selectedVideo.videoSettings.height} • 
+                      ⏱️ {videoHooks.selectedVideo.videoSettings.n_seconds}秒
+                      {videoHooks.selectedVideo.metadata.fileSize && ` • 📦 ${(videoHooks.selectedVideo.metadata.fileSize / 1024 / 1024).toFixed(1)}MB`}
+                    </div>
+                    <div className="video-player-actions">
+                      <button 
+                        className="download-btn"
+                        onClick={async () => {
+                          try {
+                            const token = await videoHooks.getAuthToken();
+                            if (!token) {
+                              throw new Error('認証トークンが見つかりません。再ログインしてください。');
+                            }
+                            
+                            const response = await fetch(`/api/downloadVideo/${videoHooks.selectedVideo!.id}`, {
+                              method: 'GET',
+                              headers: {
+                                'Authorization': `Bearer ${token}`
+                              }
+                            });
+
+                            if (!response.ok) {
+                              throw new Error(`ダウンロードエラー: ${response.status}`);
+                            }
+
+                            const contentDisposition = response.headers.get('content-disposition');
+                            let filename = `video_${videoHooks.selectedVideo!.id}.mp4`;
+                            if (contentDisposition) {
+                              const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                              if (matches && matches[1]) {
+                                filename = matches[1].replace(/['"]/g, '');
+                              }
+                            }
+
+                            const blob = await response.blob();
+                            const downloadUrl = URL.createObjectURL(blob);
+                            
+                            const link = document.createElement('a');
+                            link.href = downloadUrl;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(downloadUrl);
+                            
+                          } catch (error) {
+                            console.error('❌ ダウンロードエラー:', error);
+                            const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+                            alert(`ダウンロードに失敗しました: ${errorMessage}`);
+                          }
+                        }}
+                        title="動画をダウンロード"
+                      >
+                        📥 ダウンロード
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 動画ジョブリスト */}
+            {currentMode === 'video-generation' && (
+              <div className="video-jobs-section">
+                <div className="video-jobs-panel">
+                  <div className="video-jobs-header">
+                    <h3>🚀 動画ジョブ</h3>
+                    <button 
+                      onClick={videoHooks.handleVideoJobsRefresh} 
+                      className="refresh-btn"
+                    >
+                      ↻ 更新
+                    </button>
+                  </div>
+                  
+                  {videoHooks.activeVideoJobs.length === 0 ? (
+                    <div className="empty-state">
+                      動画ジョブがありません
+                    </div>
+                  ) : (
+                    <div className="jobs-list">
+                      {videoHooks.activeVideoJobs.map((job: VideoJob) => (
+                        <div key={job.id} className="job-item">
+                          <div className="job-content">
+                            <div className="job-main">
+                              <div className="job-status">
+                                {job.status === 'pending' && '⏳'}
+                                {job.status === 'running' && '🔄'}
+                                {job.status === 'completed' && '✅'}
+                                {job.status === 'succeeded' && '✅'}
+                                {job.status === 'failed' && '❌'}
+                                {job.status === 'cancelled' && '🚫'}
+                                {' '}{job.status}
+                              </div>
+                              <div className="job-prompt">
+                                {job.prompt.length > 50 ? `${job.prompt.substring(0, 50)}...` : job.prompt}
+                              </div>
+                              <div className="job-details">
+                                {job.videoSettings.width}×{job.videoSettings.height} • 
+                                {job.videoSettings.n_seconds}秒 • 
+                                {job.startTime.toLocaleTimeString()}
+                              </div>
+                              
+                              {/* 完成したジョブに処理ボタンを表示 */}
+                              {(job.status === 'completed' || job.status === 'succeeded') && (
+                                <div className="job-actions">
+                                  <button 
+                                    className="process-btn"
+                                    onClick={() => videoHooks.handleProcessCompletedJobWithDelete(job)}
+                                  >
+                                    📥 取り込み
+                                  </button>
+                                  <button 
+                                    className="delete-job-btn"
+                                    onClick={() => videoHooks.handleDeleteVideoJob(job)}
+                                  >
+                                    🗑️ 削除
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {/* 実行中・待機中のジョブにも削除ボタン */}
+                              {(job.status === 'running' || job.status === 'pending') && (
+                                <div className="job-actions">
+                                  <button 
+                                    className="cancel-job-btn"
+                                    onClick={() => videoHooks.handleDeleteVideoJob(job)}
+                                  >
+                                    ⏹️ キャンセル
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {/* 失敗したジョブにも削除ボタン */}
+                              {job.status === 'failed' && (
+                                <div className="job-actions">
+                                  <button 
+                                    className="delete-job-btn"
+                                    onClick={() => videoHooks.handleDeleteVideoJob(job)}
+                                  >
+                                    🗑️ 削除
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* サムネイル表示 */}
+                            {job.thumbnailUrl && (
+                              <div className="job-thumbnail">
+                                <img 
+                                  src={job.thumbnailUrl} 
+                                  alt="Video thumbnail"
+                                  style={{
+                                    width: '80px',
+                                    height: '60px',
+                                    objectFit: 'cover',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ddd'
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* 右側：履歴パネル */}
+        <div className="right">
+          {(currentMode === 'image-generation' || currentMode === 'image-edit') && (
+            <ImageHistoryPanel
+              imageHistory={imageHooks.imageHistory}
+              selectedImage={imageHooks.selectedImage}
+              loading={imageHooks.imageHistoryLoading}
+              onRefresh={imageHooks.handleImageHistoryRefresh}
+              onImageSelect={imageHooks.handleImageSelect}
+              onImageDelete={imageHooks.handleImageDelete}
+            />
+          )}
+          
+          {currentMode === 'video-generation' && (
+            <VideoHistoryPanel
+              videoJobs={videoHooks.videoJobs}
+              onDeleteJob={(jobId: string) => {
+                const job = videoHooks.videoJobs.find(j => j.id === jobId);
+                if (job) {
+                  videoHooks.deleteJob(job);
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AuthButtons />
+      <AppContent />
+    </MsalProvider>
+  );
+}
+
+export default App;
