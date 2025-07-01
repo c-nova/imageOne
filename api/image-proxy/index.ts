@@ -9,20 +9,53 @@ import fetch from "node-fetch";
 export default async function (context: any, req: any): Promise<void> {
   const startTime = Date.now();
   const path = req.query.path;
+  const url = req.query.url; // 🆕 従来のOpenAI API URL用パラメータ
   
   try {
     // 📋 必須パラメータの検証
-    if (!path) {
+    if (!path && !url) {
       context.res = {
         status: 400,
-        body: { error: "パス（path）が必要です" }
+        body: { error: "パス（path）またはURL（url）が必要です" }
       };
       return;
     }
 
+    // 🆕 URLパラメータが指定されている場合（従来のOpenAI API URL用）
+    if (url) {
+      context.log(`🔗 [DEBUG] 外部URL経由取得: ${url}`);
+      return await handleExternalUrl(context, url, startTime);
+    }
+
     // 🔍 OpenAI APIパスかどうかを判定
     if (path.includes('openai/v1/video/generations/') && path.includes('/content/thumbnail')) {
-      // OpenAI APIからサムネイルを取得
+      // 🎯 呼び出し元に応じて処理を分ける
+      const referer = req.headers.referer || req.headers.referrer || '';
+      const userAgent = req.headers['user-agent'] || '';
+      const isFromVideoHistory = req.query.fromHistory === 'true';
+      
+      context.log(`� [DEBUG] OpenAI APIサムネイル取得要求:`, {
+        path: path,
+        referer: referer,
+        userAgent: userAgent,
+        isFromVideoHistory: isFromVideoHistory
+      });
+      
+      // 📺 動画履歴からの呼び出しの場合は無効化（Blob Storageを使うべき）
+      if (isFromVideoHistory) {
+        context.log.warn(`🚫 [DISABLED] 動画履歴からのOpenAI APIサムネイル取得は無効化されました: ${path}`);
+        context.res = {
+          status: 404,
+          body: { 
+            error: "動画履歴のサムネイルはBlob Storageから取得してください。",
+            message: "OpenAI APIサムネイルは動画ジョブ実行中のみ利用可能です。"
+          }
+        };
+        return;
+      }
+      
+      // 🔄 動画ジョブ実行中の場合はOpenAI APIから取得
+      context.log(`✅ [ALLOW] 動画ジョブ実行中のOpenAI APIサムネイル取得を許可: ${path}`);
       return await handleOpenAIThumbnail(context, path, startTime);
     }
 
@@ -33,7 +66,8 @@ export default async function (context: any, req: any): Promise<void> {
     const processTime = Date.now() - startTime;
     context.log.error(`❌ プロキシエラー (${processTime}ms):`, {
       error: error.message,
-      path: path
+      path: path,
+      url: url
     });
 
     context.res = {
@@ -142,8 +176,8 @@ async function handleBlobStorage(context: any, path: string, startTime: number):
   let sanitizedPath = '';
 
   // 🛡️ セキュリティ：パス注入攻撃の防止
-  sanitizedPath = path.replace(/\.\./g, '').replace(/\/+/g, '/');
-  
+  sanitizedPath = path.replace(/\.{2}/g, '').replace(/\/+/g, '/');
+
   // 🔧 パス重複の修正：コンテナプレフィックスを除去
   if (sanitizedPath.startsWith('user-images/')) {
     sanitizedPath = sanitizedPath.substring('user-images/'.length);
@@ -151,8 +185,24 @@ async function handleBlobStorage(context: any, path: string, startTime: number):
   } else if (sanitizedPath.startsWith('user-videos/')) {
     sanitizedPath = sanitizedPath.substring('user-videos/'.length);
     containerName = 'user-videos';
+  } else {
+    // �️ サムネイルファイル名に_thumbnailが含まれてたらuser-videos優先
+    if (sanitizedPath.includes('_thumbnail')) {
+      containerName = 'user-videos';
+      context.log(`🖼️ [DEBUG] サムネイルファイル検出: ${sanitizedPath} → user-videos コンテナ`);
+    } else {
+      // �🎬 ファイル拡張子で動画コンテナを判定
+      const isVideoFile = /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(sanitizedPath);
+      if (isVideoFile) {
+        containerName = 'user-videos';
+        context.log(`🎬 [DEBUG] 動画ファイル検出: ${sanitizedPath} → user-videos コンテナ`);
+      } else {
+        containerName = 'user-images';
+        context.log(`🖼️ [DEBUG] 画像ファイル検出: ${sanitizedPath} → user-images コンテナ`);
+      }
+    }
   }
-  
+
   context.log(`🔍 [DEBUG] コンテナ: ${containerName}, パス: ${sanitizedPath}`);
   
   // セキュリティチェックを緩和（user-videos/も許可）
@@ -177,11 +227,8 @@ async function handleBlobStorage(context: any, path: string, startTime: number):
   const containerClient = blobServiceClient.getContainerClient(containerName);
   const blobClient = containerClient.getBlobClient(sanitizedPath);
 
-  // 🎬 ファイルタイプ判定（ログ用）
-  const isVideoFile = sanitizedPath.toLowerCase().endsWith('.mp4') || 
-                     sanitizedPath.toLowerCase().endsWith('.mov') || 
-                     sanitizedPath.toLowerCase().endsWith('.avi') ||
-                     sanitizedPath.toLowerCase().endsWith('.webm');
+  // 🎬 ファイルタイプ判定（ログ用・既に上で設定済み）
+  const isVideoFile = /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(sanitizedPath);
 
   context.log(`🔍 ${isVideoFile ? '動画' : '画像'}取得開始: コンテナ=${containerName}, パス=${sanitizedPath}`);
 
@@ -245,4 +292,84 @@ async function handleBlobStorage(context: any, path: string, startTime: number):
     body: fileBuffer,
     isRaw: true
   };
+}
+
+// 🌐 外部URL（従来のOpenAI API URL）取得処理
+async function handleExternalUrl(context: any, url: string, startTime: number): Promise<void> {
+  context.log(`🌐 [DEBUG] 外部URL取得開始: ${url}`);
+
+  try {
+    // 🔗 外部URLから直接取得
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'ImageProxyAPI/1.0'
+      }
+    });
+
+    if (!response.ok) {
+      context.log.error(`❌ 外部URL取得失敗: ${response.status} ${response.statusText}`);
+      context.res = {
+        status: response.status,
+        body: { error: "外部URLの取得に失敗しました" }
+      };
+      return;
+    }
+
+    // 📄 Content-Typeを決定
+    let contentType = response.headers.get('content-type') || 'application/octet-stream';
+    
+    // 🎥 URLから拡張子を判定してContent-Typeを補正
+    if (url.includes('.mp4')) {
+      contentType = 'video/mp4';
+    } else if (url.includes('.webm')) {
+      contentType = 'video/webm';
+    } else if (url.includes('.mov')) {
+      contentType = 'video/quicktime';
+    } else if (url.includes('.jpg') || url.includes('.jpeg')) {
+      contentType = 'image/jpeg';
+    } else if (url.includes('.png')) {
+      contentType = 'image/png';
+    } else if (url.includes('.gif')) {
+      contentType = 'image/gif';
+    }
+
+    // 📦 ファイルデータを取得
+    const buffer = await response.buffer();
+    
+    // ⚡ パフォーマンス測定
+    const processTime = Date.now() - startTime;
+    context.log(`✅ 外部URL取得完了: ${url} (${processTime}ms, ${buffer.length} bytes, ${contentType})`);
+
+    // 🖼️ ファイルレスポンス返却
+    context.res = {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': buffer.length.toString(),
+        'Cache-Control': 'public, max-age=3600', // 1時間キャッシュ（外部URLなので短め）
+        // CORS設定
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      },
+      body: buffer,
+      isRaw: true
+    };
+
+  } catch (error: any) {
+    const processTime = Date.now() - startTime;
+    context.log.error(`❌ 外部URL取得エラー (${processTime}ms):`, {
+      error: error.message,
+      url: url
+    });
+
+    context.res = {
+      status: 500,
+      body: { 
+        error: "外部URLの取得に失敗しました",
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      }
+    };
+  }
 }

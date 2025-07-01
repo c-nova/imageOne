@@ -10,6 +10,8 @@
   },
   "include": [
     "api/*.ts",
+    "analyzePresentationPrompt/*.ts",
+    "generatePowerPoint/*.ts",
     "recommend/*.ts",
     "list/*.ts",
     "delete/*.ts",
@@ -25,7 +27,9 @@
     "videoHistory/*.ts",
     "videoJobs/*.ts",
     "shared/*.ts",
-    "auth/*.ts"
+    "auth/*.ts",
+    "generateSlidePreview/*.ts",
+    "updatePresentationWithChat/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

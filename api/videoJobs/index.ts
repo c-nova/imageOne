@@ -247,7 +247,11 @@ async function getVideoJob(context: any, req: any): Promise<void> {
     context.log('✅ [SUCCESS] 動画ジョブ詳細取得完了:', { 
       jobId, 
       hasVideoUrl: !!videoUrl, 
-      hasThumbnailUrl: !!thumbnailUrl 
+      hasThumbnailUrl: !!thumbnailUrl,
+      videoUrl: videoUrl,
+      thumbnailUrl: thumbnailUrl,
+      status: jobData.status,
+      generationId: jobData.generations?.[0]?.id || jobData.id
     });
 
     context.res = {

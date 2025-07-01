@@ -7,11 +7,18 @@ import { useAuth } from './useAuth';
 const convertThumbnailUrlToProxy = (thumbnailUrl: string | undefined): string | undefined => {
   if (!thumbnailUrl) return undefined;
   
+  console.log('🔄 [DEBUG] サムネイルURL変換開始:', thumbnailUrl);
+  
   if (thumbnailUrl.includes('openai/v1/video/generations/') && thumbnailUrl.includes('/content/thumbnail')) {
     try {
       const url = new URL(thumbnailUrl);
       const path = url.pathname.replace(/^\//, '') + url.search;
       const proxyUrl = `/api/image-proxy?path=${encodeURIComponent(path)}`;
+      console.log('✅ [DEBUG] サムネイルURL変換成功:', {
+        original: thumbnailUrl,
+        path: path,
+        proxyUrl: proxyUrl
+      });
       return proxyUrl;
     } catch (error) {
       console.warn('🔄 サムネイルURL変換失敗:', thumbnailUrl, error);
@@ -19,6 +26,7 @@ const convertThumbnailUrlToProxy = (thumbnailUrl: string | undefined): string | 
     }
   }
   
+  console.log('🔄 [DEBUG] サムネイルURL変換スキップ（OpenAI APIパスではない）:', thumbnailUrl);
   return thumbnailUrl;
 };
 
@@ -96,9 +104,19 @@ export const useVideoGeneration = () => {
 
               if (detailRes.ok) {
                 const detailData = await detailRes.json();
+                console.log(`🔍 [DEBUG] ジョブ詳細データ ${job.id}:`, {
+                  status: detailData.status,
+                  originalThumbnailUrl: detailData.thumbnailUrl,
+                  originalVideoUrl: detailData.videoUrl
+                });
+                
                 if (detailData.thumbnailUrl) {
                   // 🖼️ OpenAI APIのサムネイルURLをプロキシ経由に変換
                   const thumbnailUrl = convertThumbnailUrlToProxy(detailData.thumbnailUrl);
+                  console.log(`🔄 [DEBUG] サムネイルURL変換 ${job.id}:`, {
+                    original: detailData.thumbnailUrl,
+                    converted: thumbnailUrl
+                  });
                   baseJob.thumbnailUrl = thumbnailUrl;
                 }
                 if (detailData.videoUrl) {
@@ -283,12 +301,16 @@ export const useVideoGeneration = () => {
           jobId: job.id,
           jobStatus: 'completed',
           videoUrl: downloadData.videoUrl, // Blob StorageのURL
+          videoBlobPath: downloadData.blobPath, // 動画のBlob Storageパス
           thumbnailUrl: convertThumbnailUrlToProxy(downloadData.thumbnailUrl || job.thumbnailUrl), // サムネイルもBlob Storageにあれば使用（プロキシ経由）
+          thumbnailBlobPath: downloadData.thumbnailBlobPath, // サムネイルのBlob Storageパス
           metadata: {
             generationId: job.generationId || job.id,
             processingTime: job.startTime ? Date.now() - job.startTime.getTime() : undefined,
             originalVideoUrl: job.videoUrl, // 元のOpenAI APIのURLも保存
-            blobPath: downloadData.blobPath // Blob Storageのパスも保存
+            originalThumbnailUrl: job.thumbnailUrl, // 元のOpenAI APIサムネイルURLも保存
+            blobPath: downloadData.blobPath, // Blob Storageのパス（後方互換性）
+            thumbnailBlobPath: downloadData.thumbnailBlobPath // サムネイルのBlob Storageパス
           }
         })
       });
@@ -440,12 +462,16 @@ export const useVideoGeneration = () => {
           jobId: job.id,
           jobStatus: 'completed',
           videoUrl: downloadData.videoUrl, // Blob StorageのURL
+          videoBlobPath: downloadData.blobPath, // 動画のBlob Storageパス
           thumbnailUrl: convertThumbnailUrlToProxy(downloadData.thumbnailUrl || job.thumbnailUrl), // サムネイルもBlob Storageにあれば使用（プロキシ経由）
+          thumbnailBlobPath: downloadData.thumbnailBlobPath, // サムネイルのBlob Storageパス
           metadata: {
             generationId: job.generationId || job.id,
             processingTime: job.startTime ? Date.now() - job.startTime.getTime() : undefined,
             originalVideoUrl: job.videoUrl, // 元のOpenAI APIのURLも保存
-            blobPath: downloadData.blobPath // Blob Storageのパスも保存
+            originalThumbnailUrl: job.thumbnailUrl, // 元のOpenAI APIサムネイルURLも保存
+            blobPath: downloadData.blobPath, // Blob Storageのパス（後方互換性）
+            thumbnailBlobPath: downloadData.thumbnailBlobPath // サムネイルのBlob Storageパス
           }
         })
       });
@@ -454,7 +480,8 @@ export const useVideoGeneration = () => {
         const saveData = await saveRes.json();
         console.log(`✅ ジョブ ${job.id} の処理完了:`, saveData);
         
-        // 処理成功後、自動的にジョブを削除
+        // 💡 [DEBUG] 処理成功後の自動削除を一時的に無効化（デバッグのため）
+        /*
         console.log(`🗑️ ジョブ ${job.id} を自動削除中...`);
         
         // 楽観的更新: UIから即座に削除
@@ -472,6 +499,8 @@ export const useVideoGeneration = () => {
         } else {
           console.warn(`⚠️ ジョブ ${job.id} の自動削除に失敗（処理は成功）`);
         }
+        */
+        console.log(`💡 [DEBUG] ジョブ ${job.id} の自動削除をスキップ（デバッグモード）`);
         
         alert(`✅ 動画「${job.prompt.substring(0, 30)}...」の取り込み完了！`);
         

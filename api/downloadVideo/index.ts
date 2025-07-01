@@ -150,23 +150,46 @@ async function handleVideoImport(context: any, req: any): Promise<void> {
     const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
     context.log('✅ [DEBUG] 動画ダウンロード完了:', { size: videoBuffer.length });
 
-    // 🖼️ サムネイルもダウンロード（オプション）
+    // 🖼️ サムネイルもダウンロード（OpenAI APIから直接）
     let thumbnailBuffer: Buffer | null = null;
     let thumbnailBlobUrl: string | undefined = undefined;
     
-    // サムネイルURLが提供されている場合は、サムネイルもダウンロード
-    if (req.body.thumbnailUrl) {
+    // jobIdから実際のOpenAI APIサムネイルURLを構築
+    const jobId = req.body.jobId;
+    if (jobId) {
       try {
-        context.log('🖼️ [DEBUG] サムネイルダウンロード開始:', req.body.thumbnailUrl);
-        const thumbnailResponse = await fetch(req.body.thumbnailUrl, {
+        // OpenAI APIサムネイルURLを構築（例: gen_01jyzavb3ff3nvta75vhevxz59 の部分が必要）
+        // まずジョブ詳細を取得してgenerationIdを探す
+        const jobDetailUrl = `${endpoint}openai/v1/video/generations/jobs/${jobId}?api-version=preview`;
+        context.log('🔍 [DEBUG] ジョブ詳細取得:', jobDetailUrl);
+        
+        const jobDetailResponse = await fetch(jobDetailUrl, {
           headers: { "api-key": apiKey }
         });
+        
+        if (jobDetailResponse.ok) {
+          const jobDetail = await jobDetailResponse.json();
+          const generationId = jobDetail.generations?.[0]?.id;
+          
+          if (generationId) {
+            const thumbnailUrl = `${endpoint}openai/v1/video/generations/${generationId}/content/thumbnail?api-version=preview`;
+            context.log('🖼️ [DEBUG] サムネイルダウンロード開始:', thumbnailUrl);
+            
+            const thumbnailResponse = await fetch(thumbnailUrl, {
+              headers: { "api-key": apiKey }
+            });
 
-        if (thumbnailResponse.ok) {
-          thumbnailBuffer = Buffer.from(await thumbnailResponse.arrayBuffer());
-          context.log('✅ [DEBUG] サムネイルダウンロード完了:', { size: thumbnailBuffer.length });
+            if (thumbnailResponse.ok) {
+              thumbnailBuffer = Buffer.from(await thumbnailResponse.arrayBuffer());
+              context.log('✅ [DEBUG] サムネイルダウンロード完了:', { size: thumbnailBuffer.length });
+            } else {
+              context.log('⚠️ [WARN] サムネイルダウンロード失敗（続行）:', thumbnailResponse.status);
+            }
+          } else {
+            context.log('⚠️ [WARN] generationId が見つかりません');
+          }
         } else {
-          context.log('⚠️ [WARN] サムネイルダウンロード失敗（続行）:', thumbnailResponse.status);
+          context.log('⚠️ [WARN] ジョブ詳細取得失敗（続行）:', jobDetailResponse.status);
         }
       } catch (thumbnailError) {
         context.log('⚠️ [WARN] サムネイルダウンロードエラー（続行）:', thumbnailError);
@@ -195,8 +218,9 @@ async function handleVideoImport(context: any, req: any): Promise<void> {
     });
 
     // 🖼️ サムネイルも保存（あれば）
+    let thumbnailBlobName: string | undefined = undefined;
     if (thumbnailBuffer) {
-      const thumbnailBlobName = `${userId}/${jobId}_${timestamp}_thumbnail.jpg`;
+      thumbnailBlobName = `${userId}/${jobId}_${timestamp}_thumbnail.jpg`;
       const thumbnailBlobClient = containerClient.getBlockBlobClient(thumbnailBlobName);
       
       context.log('📤 [DEBUG] サムネイルアップロード開始:', thumbnailBlobName);
@@ -214,6 +238,53 @@ async function handleVideoImport(context: any, req: any): Promise<void> {
     const blobUrl = blobClient.url;
     context.log('✅ [DEBUG] 動画アップロード完了:', blobUrl);
 
+    // 🎬 Cosmos DBの動画履歴を更新（Blob Storage情報を追加）
+    try {
+      context.log('🔄 [DEBUG] Cosmos DB動画履歴更新開始...');
+      const cosmosClient = await getCosmosClient();
+      const databaseId = process.env.COSMOS_DB_DATABASE || "ImageGenerationDB";
+      const containerId = process.env.COSMOS_DB_CONTAINER || "PromptHistory";
+      const database = cosmosClient.database(databaseId);
+      const container = database.container(containerId);
+
+      // jobIdで既存の履歴を検索
+      const existingQuery = {
+        query: "SELECT * FROM c WHERE c.jobId = @jobId",
+        parameters: [{ name: '@jobId', value: jobId }]
+      };
+
+      const { resources: existing } = await container.items.query(existingQuery).fetchAll();
+
+      if (existing.length > 0) {
+        const existingItem = existing[0];
+        
+        // Blob Storage情報で更新
+        existingItem.videoUrl = blobUrl;
+        existingItem.videoBlobPath = blobName;
+        existingItem.jobStatus = 'completed';
+        existingItem.completedAt = new Date().toISOString();
+        
+        if (thumbnailBlobUrl && thumbnailBlobName) {
+          existingItem.thumbnailUrl = thumbnailBlobUrl;
+          existingItem.thumbnailBlobPath = thumbnailBlobName;
+        }
+
+        await container.items.upsert(existingItem);
+        context.log('✅ [DEBUG] Cosmos DB動画履歴更新完了:', { 
+          id: existingItem.id, 
+          jobId,
+          hasVideo: !!existingItem.videoUrl,
+          hasThumbnail: !!existingItem.thumbnailUrl,
+          videoBlobPath: existingItem.videoBlobPath,
+          thumbnailBlobPath: existingItem.thumbnailBlobPath
+        });
+      } else {
+        context.log('⚠️ [WARNING] 対応するjobIdの履歴が見つかりませんでした:', jobId);
+      }
+    } catch (cosmosError: any) {
+      context.log.warn('⚠️ [WARNING] Cosmos DB更新エラー（動画取り込みは成功）:', cosmosError.message);
+    }
+
     // 📊 レスポンスを返す
     context.res = {
       status: 200,
@@ -223,6 +294,7 @@ async function handleVideoImport(context: any, req: any): Promise<void> {
         videoUrl: blobUrl,
         thumbnailUrl: thumbnailBlobUrl, // サムネイルのBlob Storage URL
         blobPath: blobName,
+        thumbnailBlobPath: thumbnailBlobName, // サムネイルのBlob Storage パス
         size: videoBuffer.length,
         originalVideoUrl: videoUrl,
         originalThumbnailUrl: req.body.thumbnailUrl

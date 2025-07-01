@@ -5,23 +5,30 @@ import { getMsalConfig } from './msalConfig';
 import { useVideoGeneration } from './hooks/useVideoGeneration';
 import { useImageGeneration } from './hooks/useImageGeneration';
 import { useImageEdit } from './hooks/useImageEdit';
+import { usePresentationGeneration } from './hooks/usePresentationGeneration';
+import { usePowerPointGeneration } from './hooks/usePowerPointGeneration';
 import VideoGenerationPanel from './components/VideoGenerationPanel';
 import ImageGenerationPanel from './components/ImageGenerationPanel';
 import ImageEditPanel from './components/ImageEditPanel';
 import ImageHistoryPanel from './components/ImageHistoryPanel';
+import PresentationGenerationPanel from './components/PresentationGenerationPanel';
+import PresentationPreviewPanel from './components/PresentationPreviewPanel';
+import VideoJobPanel from './components/VideoJobPanel';
 import VideoHistoryPanel from './VideoHistoryPanel';
 import LoginPage from './components/LoginPage';
 import './App.css';
 
-// アプリモード定義（3つのモード統合！）
-type AppMode = 'generate' | 'edit' | 'video';
+// アプリモード定義（4つのモード統合！）
+type AppMode = 'generate' | 'edit' | 'video' | 'presentation';
 
 function AppContent() {
-  // ===== 🎯 モード管理（3つのモード統合！） =====
+  // ===== 🎯 モード管理（4つのモード統合！） =====
   const [currentMode, setCurrentMode] = useState<AppMode>('generate');
   // ===== 🔌 フック統合 =====
   const videoHooks = useVideoGeneration();
   const imageHooks = useImageGeneration();
+  const presentationHooks = usePresentationGeneration();
+  const powerPointHooks = usePowerPointGeneration();
   // ✏️ 画像編集フック（履歴更新コールバック付き）
   const editHooks = useImageEdit(() => {
     // 編集成功時に画像履歴を自動更新
@@ -52,6 +59,13 @@ function AppContent() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]); // imageHooksの依存を削除
+
+  // ===== 📜 プレゼンテーションモード時は履歴パネルを自動で閉じる =====
+  useEffect(() => {
+    if (currentMode === 'presentation') {
+      setShowHistoryPanel(false);
+    }
+  }, [currentMode]);
 
   // ===== 🎨 キャンバスサイズ自動調整（編集モード用） =====
   useEffect(() => {
@@ -313,6 +327,24 @@ function AppContent() {
             >
               🎬 動画生成
             </button>
+            <button
+              className={`mode-tab ${currentMode === 'presentation' ? 'active' : ''}`}
+              onClick={() => setCurrentMode('presentation')}
+              style={{
+                background: currentMode === 'presentation' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)',
+                color: currentMode === 'presentation' ? '#155724' : '#155724',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                fontWeight: currentMode === 'presentation' ? 'bold' : 'normal',
+                cursor: 'pointer',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                backdropFilter: 'blur(10px)'
+              }}
+            >
+              📊 PowerPoint
+            </button>
           </div>
 
           {/* ログアウトボタン */}
@@ -458,191 +490,28 @@ function AppContent() {
                   </button>
                 </div>
                 
-                {videoHooks.activeVideoJobs.length === 0 ? (
-                  <div style={{
-                    textAlign: 'center',
-                    padding: '20px',
-                    color: '#666',
-                    fontSize: '14px'
-                  }}>
-                    <div style={{ marginBottom: '8px' }}>⏳</div>
-                    <div>動画ジョブがありません</div>
-                    <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                      動画を生成すると<br/>ここに表示されます
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{
-                    maxHeight: '300px',
-                    overflowY: 'auto'
-                  }}>
-                    {videoHooks.activeVideoJobs.map((job: any) => (
-                      <div 
-                        key={job.id}
-                        style={{
-                          background: '#f9f9f9',
-                          border: '1px solid #e0e0e0',
-                          borderRadius: '8px',
-                          padding: '12px',
-                          marginBottom: '8px',
-                          fontSize: '12px'
-                        }}
-                      >
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          marginBottom: '8px'
-                        }}>
-                          <div style={{ flex: 1 }}>
-                            {/* ステータス表示 */}
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              marginBottom: '4px'
-                            }}>
-                              <span>
-                                {job.status === 'pending' && '⏳'}
-                                {job.status === 'running' && '🔄'}
-                                {(job.status === 'completed' || job.status === 'succeeded') && '✅'}
-                                {job.status === 'failed' && '❌'}
-                                {job.status === 'cancelled' && '🚫'}
-                              </span>
-                              <span style={{
-                                fontWeight: 'bold',
-                                color: (job.status === 'completed' || job.status === 'succeeded') ? '#28a745' : 
-                                       job.status === 'running' ? '#ffc107' :
-                                       job.status === 'failed' ? '#dc3545' : '#6c757d'
-                              }}>
-                                {job.status === 'pending' && '待機中'}
-                                {job.status === 'running' && '生成中'}
-                                {(job.status === 'completed' || job.status === 'succeeded') && '完成'}
-                                {job.status === 'failed' && '失敗'}
-                                {job.status === 'cancelled' && 'キャンセル'}
-                              </span>
-                            </div>
-                            
-                            {/* プロンプト */}
-                            <div style={{
-                              fontSize: '11px',
-                              color: '#666',
-                              marginBottom: '4px',
-                              lineHeight: '1.3'
-                            }}>
-                              {job.prompt && job.prompt.length > 50 ? 
-                                `${job.prompt.substring(0, 50)}...` : 
-                                job.prompt || 'プロンプトなし'
-                              }
-                            </div>
-                            
-                            {/* 設定詳細 */}
-                            <div style={{
-                              fontSize: '10px',
-                              color: '#999'
-                            }}>
-                              {job.videoSettings?.width}×{job.videoSettings?.height} • 
-                              {job.videoSettings?.n_seconds}秒 • 
-                              {job.startTime ? new Date(job.startTime).toLocaleTimeString() : '時刻不明'}
-                            </div>
-                          </div>
-                          
-                          {/* サムネイル */}
-                          {job.thumbnailUrl && (
-                            <img 
-                              src={job.thumbnailUrl} 
-                              alt="Video thumbnail"
-                              style={{
-                                width: '120px', // 2倍に拡大
-                                height: '90px', // 2倍に拡大（16:9比率キープ）
-                                objectFit: 'cover',
-                                borderRadius: '8px', // 角丸も大きく
-                                border: '2px solid #ddd', // ボーダーも太く
-                                marginLeft: '12px', // マージンも調整
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)' // 影を追加
-                              }}
-                            />
-                          )}
-                        </div>
-                        
-                        {/* アクションボタン */}
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {/* 完成したジョブ */}
-                          {(job.status === 'completed' || job.status === 'succeeded') && (
-                            <>
-                              <button 
-                                onClick={() => videoHooks.handleProcessCompletedJobWithDelete(job)}
-                                style={{
-                                  background: '#28a745',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  padding: '4px 8px',
-                                  fontSize: '10px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                📥 取り込み
-                              </button>
-                              <button 
-                                onClick={() => videoHooks.handleDeleteVideoJob(job)}
-                                style={{
-                                  background: '#dc3545',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  padding: '4px 8px',
-                                  fontSize: '10px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                🗑️ 削除
-                              </button>
-                            </>
-                          )}
-                          
-                          {/* 実行中・待機中のジョブ */}
-                          {(job.status === 'running' || job.status === 'pending') && (
-                            <button 
-                              onClick={() => videoHooks.handleDeleteVideoJob(job)}
-                              style={{
-                                background: '#ffc107',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                padding: '4px 8px',
-                                fontSize: '10px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              ⏹️ キャンセル
-                            </button>
-                          )}
-                          
-                          {/* 失敗したジョブ */}
-                          {job.status === 'failed' && (
-                            <button 
-                              onClick={() => videoHooks.handleDeleteVideoJob(job)}
-                              style={{
-                                background: '#dc3545',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                padding: '4px 8px',
-                                fontSize: '10px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              🗑️ 削除
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <VideoJobPanel
+                  videoJobs={videoHooks.activeVideoJobs}
+                  onDeleteJob={(jobId: string) => {
+                    const job = videoHooks.activeVideoJobs.find(j => j.id === jobId);
+                    if (job) videoHooks.handleDeleteVideoJob(job);
+                  }}
+                  onProcessCompleted={(job) => videoHooks.handleProcessCompletedJobWithDelete(job)}
+                />
               </div>
             </>
+          )}
+
+          {currentMode === 'presentation' && (
+            <PresentationGenerationPanel
+              prompt={presentationHooks.prompt}
+              setPrompt={presentationHooks.setPrompt}
+              generatedPlan={presentationHooks.generatedPlan}
+              isAnalyzing={presentationHooks.isAnalyzing}
+              error={presentationHooks.error}
+              onAnalyze={presentationHooks.handleAnalyze}
+              onReset={presentationHooks.resetPlan}
+            />
           )}
         </div>
 
@@ -838,6 +707,30 @@ function AppContent() {
               </div>
             )}
             
+            {currentMode === 'presentation' && presentationHooks.generatedPlan && (
+              <div style={{ 
+                textAlign: 'center', 
+                width: '100%', 
+                height: '100%', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                justifyContent: 'center', 
+                alignItems: 'center',
+                padding: '12px' // 20px → 12px に縮小！🎯
+              }}>
+                {/* 実際のスライド画像プレビュー */}
+                <PresentationPreviewPanel
+                  presentationPlan={presentationHooks.generatedPlan}
+                  onUpdatePlan={(updatedPlan) => {
+                    console.log('🔄 プレゼンテーション更新:', updatedPlan);
+                    presentationHooks.updateGeneratedPlan(updatedPlan);
+                  }}
+                  onDownloadPowerPoint={(theme, masterStyle) => powerPointHooks.generatePowerPoint(presentationHooks.generatedPlan!, theme, masterStyle)}
+                  isGenerating={powerPointHooks.isGenerating}
+                />
+              </div>
+            )} 
+            
             {currentMode === 'video' && videoHooks.selectedVideo && videoHooks.selectedVideo.videoUrl && (
               <div style={{ textAlign: 'center', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <video
@@ -973,10 +866,10 @@ function AppContent() {
             )}
             
             {/* デフォルト表示 */}
-            {currentMode !== 'edit' && 
-             !imageHooks.selectedImage && 
+            {!imageHooks.selectedImage && 
              !editHooks.editedImage && 
-             (!videoHooks.selectedVideo || !videoHooks.selectedVideo.videoUrl) && (
+             (!videoHooks.selectedVideo || !videoHooks.selectedVideo.videoUrl) &&
+             !presentationHooks.generatedPlan && (
               <div style={{
                 textAlign: 'center',
                 color: '#666',
@@ -985,9 +878,11 @@ function AppContent() {
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>
                   {currentMode === 'generate' && '🎭'}
                   {currentMode === 'video' && '🎬'}
+                  {currentMode === 'presentation' && '📊'}
                 </div>
                 {currentMode === 'generate' && '画像生成を開始してください'}
                 {currentMode === 'video' && '動画生成を開始してください'}
+                {currentMode === 'presentation' && 'プレゼンテーション分析を開始してください'}
               </div>
             )}
           </div>
@@ -999,18 +894,18 @@ function AppContent() {
           maxWidth: showHistoryPanel ? 450 : 60,
           width: showHistoryPanel ? '25vw' : '60px', 
           background: showHistoryPanel ? 'linear-gradient(135deg, #e0ffe0 0%, #a8ff78 100%)' : 'rgba(255,255,255,0.7)',
-          borderLeft: 'none',
-          boxShadow: showHistoryPanel ? '0 4px 24px 0 rgba(0,230,118,0.10)' : 'none',
-          borderRadius: showHistoryPanel ? '24px 0 0 24px' : '16px',
-          margin: showHistoryPanel ? '16px 0 16px 8px' : '0',
-          padding: showHistoryPanel ? 24 : 8, 
-          boxSizing: 'border-box', 
-          display: 'flex', 
-          flexDirection: 'column',
-          transition: 'all 0.3s cubic-bezier(.4,2,.6,1) 0.2s',
-          position: 'relative',
-          overflow: 'hidden',
-        }}>
+            borderLeft: 'none',
+            boxShadow: showHistoryPanel ? '0 4px 24px 0 rgba(0,230,118,0.10)' : 'none',
+            borderRadius: showHistoryPanel ? '24px 0 0 24px' : '16px',
+            margin: showHistoryPanel ? '16px 0 16px 8px' : '0',
+            padding: showHistoryPanel ? 24 : 8, 
+            boxSizing: 'border-box', 
+            display: 'flex', 
+            flexDirection: 'column',
+            transition: 'all 0.3s cubic-bezier(.4,2,.6,1) 0.2s',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
           {/* ヒストリーパネルの開閉ボタン */}
           <button 
             onClick={() => setShowHistoryPanel(!showHistoryPanel)}
@@ -1030,7 +925,15 @@ function AppContent() {
               zIndex: 10
             }}
           >
-            {showHistoryPanel ? '✕' : '📜'}
+            {showHistoryPanel 
+              ? '✕' 
+              : (currentMode === 'video' 
+                  ? '🎬' 
+                  : currentMode === 'presentation' 
+                    ? '�' 
+                    : '�📜'
+                )
+            }
           </button>
 
           {showHistoryPanel && (
@@ -1047,7 +950,22 @@ function AppContent() {
                   gap: 10,
                   textShadow: '0 2px 8px #fff, 0 1px 0 #a8ff78'
                 }}>
-                  <span style={{fontSize: 28}}>🖼️</span> 画像履歴
+                  {/* 現在のモードに応じてタイトルとアイコンを動的に変更 */}
+                  {currentMode === 'video' && (
+                    <>
+                      <span style={{fontSize: 28}}>🎬</span> 動画履歴
+                    </>
+                  )}
+                  {currentMode === 'presentation' && (
+                    <>
+                      <span style={{fontSize: 28}}>📊</span> プレゼンテーション履歴
+                    </>
+                  )}
+                  {(currentMode === 'generate' || currentMode === 'edit') && (
+                    <>
+                      <span style={{fontSize: 28}}>🖼️</span> 画像履歴
+                    </>
+                  )}
                 </h3>
                 <div style={{height: 2, background: 'linear-gradient(90deg,#a8ff78,#fff176 60%,#fff0)', borderRadius: 2, marginBottom: 18}} />
                 {/* 現在のモードに応じて履歴を表示 */}
@@ -1079,15 +997,30 @@ function AppContent() {
                   </div>
                 )}
 
+                {currentMode === 'presentation' && (
+                  <div style={{
+                    padding: '20px',
+                    textAlign: 'center',
+                    color: '#666',
+                    fontSize: '14px'
+                  }}>
+                    📊 プレゼンテーション履歴
+                    <div style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      background: 'rgba(255,255,255,0.5)',
+                      borderRadius: '8px',
+                      fontSize: '12px'
+                    }}>
+                      💡 プレゼンテーション履歴機能は今後実装予定です
+                    </div>
+                  </div>
+                )}
+
                 {currentMode === 'video' && (
                   <div style={{marginBottom: 24}}>
                     <VideoHistoryPanel
-                      videoJobs={videoHooks.activeVideoJobs}
                       videoHistory={videoHooks.videoHistory}
-                      onDeleteJob={(jobId: string) => {
-                        const job = videoHooks.activeVideoJobs.find(j => j.id === jobId);
-                        if (job) videoHooks.handleDeleteVideoJob(job);
-                      }}
                       onVideoSelect={videoHooks.handleVideoSelect}
                       onDeleteVideoHistory={videoHooks.handleDeleteVideoHistory}
                     />
@@ -1112,7 +1045,12 @@ function AppContent() {
               textAlign: 'center',
               fontWeight: 'bold'
             }}>
-              📜
+              {currentMode === 'video' 
+                ? '🎬' 
+                : currentMode === 'presentation' 
+                  ? '📊' 
+                  : '📜'
+              }
             </div>
           )}
         </div>

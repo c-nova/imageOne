@@ -18,6 +18,7 @@ async function getOpenAIClient() {
   if (openAIClient) return openAIClient;
   const endpointSecret = await secretClient.getSecret("OpenAI-Endpoint");
   const endpoint = endpointSecret.value!;
+  const apiKey = (await secretClient.getSecret("OpenAI-Key")).value!;
   if (!OPENAI_IMAGE_DEPLOYMENT_NAME) {
     const deploymentSecret = await secretClient.getSecret("OpenAI-Deployment");
     OPENAI_IMAGE_DEPLOYMENT_NAME = deploymentSecret.value!;
@@ -30,10 +31,7 @@ async function getOpenAIClient() {
     endpoint,
     apiVersion: OPENAI_API_VERSION,
     deployment: OPENAI_IMAGE_DEPLOYMENT_NAME,
-    azureADTokenProvider: async () => {
-      const tokenResponse = await credential.getToken("https://cognitiveservices.azure.com/.default");
-      return tokenResponse.token;
-    }
+    apiKey: apiKey
   });
   return openAIClient;
 }

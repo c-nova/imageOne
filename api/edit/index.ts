@@ -42,29 +42,57 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     return;
   }
 
+  // OpenAI API対応サイズリスト
+  const supportedSizes = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+  
   // 実際の画像サイズを優先使用、次にactualSize、最後にデフォルト
   let usedSize: string;
   let usedWidth: number;
   let usedHeight: number;
+  let originalWidth: number;
+  let originalHeight: number;
 
   if (actualWidth && actualHeight) {
     // 実際のピクセル値が提供された場合
+    originalWidth = actualWidth;
+    originalHeight = actualHeight;
     usedWidth = actualWidth;
     usedHeight = actualHeight;
-    usedSize = `${usedWidth}x${usedHeight}`;
-    context.log(`📐 実際のピクセル値使用: ${usedSize}`);
+    
+    // OpenAI APIサポートサイズに変換
+    const originalSize = `${usedWidth}x${usedHeight}`;
+    if (supportedSizes.includes(originalSize)) {
+      usedSize = originalSize;
+      context.log(`📐 実際のピクセル値がサポート済み: ${usedSize}`);
+    } else {
+      // サポート外サイズの場合は'auto'を使用
+      usedSize = 'auto';
+      context.log(`📐 実際のピクセル値(${originalSize})はサポート外 → 'auto'に変換: ${usedSize}`);
+    }
   } else if (actualSize) {
     // actualSizeが提供された場合
     const [w, h] = actualSize.split('x').map(Number);
+    originalWidth = w;
+    originalHeight = h;
     usedWidth = w;
     usedHeight = h;
-    usedSize = actualSize;
-    context.log(`📐 actualSize使用: ${usedSize}`);
+    
+    // OpenAI APIサポートサイズかチェック
+    if (supportedSizes.includes(actualSize)) {
+      usedSize = actualSize;
+      context.log(`📐 actualSizeがサポート済み: ${usedSize}`);
+    } else {
+      // サポート外サイズの場合は'auto'を使用
+      usedSize = 'auto';
+      context.log(`📐 actualSize(${actualSize})はサポート外 → 'auto'に変換: ${usedSize}`);
+    }
   } else {
     // デフォルト値（互換性のため）
     usedSize = "1024x1024";
     usedWidth = 1024;
     usedHeight = 1024;
+    originalWidth = 1024;
+    originalHeight = 1024;
     context.log(`📐 デフォルトサイズ使用: ${usedSize}`);
   }
   
@@ -75,7 +103,8 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
   context.log(`  - size (フロントエンド): ${size || 'undefined'}`);
   context.log(`  - actualSize (検出値): ${actualSize}`);
   context.log(`  - actualWidth x actualHeight: ${actualWidth} x ${actualHeight}`);
-  context.log(`  - usedSize (最終使用): ${usedSize}`);
+  context.log(`  - originalWidth x originalHeight: ${originalWidth} x ${originalHeight}`);
+  context.log(`  - usedSize (OpenAI API用): ${usedSize}`);
   context.log(`  - usedWidth x usedHeight: ${usedWidth} x ${usedHeight}`);
   context.log(`  - hasMask: ${!!maskBase64}`);
 
@@ -139,7 +168,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
     context.log("🎨 最新GPT-image-1での画像編集リクエスト送信開始");
     context.log(`  Endpoint: ${endpoint}/openai/deployments/${deploymentId}/images/edits`);
     context.log(`  Model: gpt-image-1`);
-    context.log(`  Size: ${usedSize} (実際のピクセルサイズ)`);
+    context.log(`  Size: ${usedSize} (OpenAI API用サイズ - 元: ${originalWidth}x${originalHeight})`);
     context.log(`  Width x Height: ${usedWidth} x ${usedHeight}`);
     context.log(`  Has mask: ${!!maskBase64}`);
 
@@ -207,7 +236,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
         userId: userInfo.userId,
         prompt: cleanPrompt,
         editedAt: new Date().toISOString(),
-        originalSize: usedSize, // 実際のサイズを記録
+        originalSize: `${originalWidth}x${originalHeight}`, // 元の実際のサイズを記録
         actualWidth: usedWidth.toString(),
         actualHeight: usedHeight.toString(),
         operationType: 'edit'
@@ -234,7 +263,7 @@ const httpTrigger = async function (context: any, req: any): Promise<void> {
         imageUrl: outputBlobUrl,
         imageBlobPath: userBlobPath,
         operationType: 'edit',
-        size: usedSize, // 実際のサイズを記録
+        size: `${originalWidth}x${originalHeight}`, // 元の実際のサイズを記録
         timestamp: new Date().toISOString(),
         metadata: {
           userAgent: req.headers['user-agent'],

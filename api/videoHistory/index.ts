@@ -164,32 +164,92 @@ async function getVideoHistory(context: any, req: any): Promise<void> {
       jobStatus: item.jobStatus,
       timestamp: item.timestamp,
       hasJobId: !!item.jobId,
-      jobIdLength: item.jobId?.length || 0
+      jobIdLength: item.jobId?.length || 0,
+      videoBlobPath: item.videoBlobPath || 'なし',
+      thumbnailBlobPath: item.thumbnailBlobPath || 'なし',
+      videoUrl: item.videoUrl ? 'あり' : 'なし',
+      thumbnailUrl: item.thumbnailUrl ? 'あり' : 'なし'
     })));
     
-    // JavaScriptでフィルタリング（jobIdがあるもののみ）
+    // 🔍 特別デバッグ：jobIdを持つものだけ詳しく確認
+    const itemsWithJobId = allHistory.filter(item => item.jobId);
+    context.log('🎯 [DEBUG] jobIdがあるアイテム詳細:', itemsWithJobId.map(item => ({
+      id: item.id,
+      jobId: item.jobId,
+      jobStatus: item.jobStatus,
+      videoBlobPath: item.videoBlobPath,
+      thumbnailBlobPath: item.thumbnailBlobPath,
+      videoUrl: item.videoUrl?.substring(0, 100) + '...',
+      thumbnailUrl: item.thumbnailUrl?.substring(0, 100) + '...',
+      metadata: item.metadata
+    })));
+    
+    // 🎬 履歴フィルタリング：完了した動画ジョブのみ表示
     const videoHistory = allHistory.filter((item: any) => {
       const hasJobId = item.jobId && item.jobId.length > 0;
-      context.log(`🔍 [FILTER] ${item.id}: jobId="${item.jobId}", hasJobId=${hasJobId}`);
-      return hasJobId;
+      const isCompleted = item.jobStatus === 'completed' || item.jobStatus === 'succeeded'; // succeededも追加
+      
+      // 🔄 Blob Storageへの移行は任意（古い履歴は未移行でもOK）
+      const hasBlobStorage = !!(item.videoBlobPath || item.thumbnailBlobPath);
+      const hasLegacyUrls = !!(item.videoUrl || item.thumbnailUrl); // 従来のURL形式もOK
+      
+      // 動画ジョブで完了していれば表示（Blob移行の有無は問わない）
+      const shouldInclude = hasJobId && isCompleted;
+      
+      context.log(`🔍 [FILTER] ${item.id}:`, {
+        jobId: item.jobId || 'なし',
+        jobStatus: item.jobStatus || 'なし',
+        hasJobId,
+        isCompleted,
+        hasBlobStorage: hasBlobStorage,
+        hasLegacyUrls: hasLegacyUrls,
+        videoBlobPath: item.videoBlobPath || 'なし',
+        thumbnailBlobPath: item.thumbnailBlobPath || 'なし',
+        videoUrl: item.videoUrl ? 'あり' : 'なし',
+        thumbnailUrl: item.thumbnailUrl ? 'あり' : 'なし',
+        shouldInclude: shouldInclude
+      });
+      
+      return shouldInclude;
+    });
+    
+    // 🚨 一時的デバッグ：フィルタリングした結果が空の場合は、jobIdがあるものを全部返す
+    const finalVideoHistory = videoHistory.length > 0 ? videoHistory : allHistory.filter(item => !!item.jobId);
+    
+    context.log('🚨 [DEBUG] フィルタリング結果:', {
+      originalCount: allHistory.length,
+      filteredCount: videoHistory.length,
+      finalCount: finalVideoHistory.length,
+      usingFallback: videoHistory.length === 0
     });
 
-    // 統計情報を手動計算
-    const totalCount = videoHistory.length;
-    const completedCount = videoHistory.filter((item: any) => item.jobStatus === 'completed').length;
-    const activeCount = videoHistory.filter((item: any) => item.jobStatus === 'pending' || item.jobStatus === 'running').length;
-    const failedCount = videoHistory.filter((item: any) => item.jobStatus === 'failed').length;
+    // 📊 統計情報を履歴データベースで計算（全データから算出）
+    const completedWithBlobCount = allHistory.filter((item: any) => 
+      (item.jobStatus === 'completed' || item.jobStatus === 'succeeded') && (item.videoBlobPath || item.thumbnailBlobPath)
+    ).length;
+    const activeCount = allHistory.filter((item: any) => 
+      item.jobStatus === 'pending' || item.jobStatus === 'running'
+    ).length;
+    const failedCount = allHistory.filter((item: any) => 
+      item.jobStatus === 'failed'
+    ).length;
+    const cancelledCount = allHistory.filter((item: any) => 
+      item.jobStatus === 'cancelled'
+    ).length;
 
     const stats = {
-      totalCount,
-      completedCount,
-      activeCount,
-      failedCount
+      totalHistoryCount: finalVideoHistory.length, // 実際の履歴件数（修正済み）
+      totalJobCount: allHistory.filter((item: any) => item.jobId).length, // 全ジョブ件数
+      completedWithBlobCount, // 完了＆Blob保存済み
+      activeCount, // 進行中
+      failedCount, // 失敗
+      cancelledCount // キャンセル
     };
 
     context.log('✅ [SUCCESS] 動画履歴取得完了:', { 
       allHistoryCount: allHistory.length,
-      videoHistoryCount: videoHistory.length, 
+      videoHistoryCount: finalVideoHistory.length, // 修正済み
+      filteredOutCount: allHistory.length - finalVideoHistory.length, // 修正済み
       stats: stats 
     });
 
@@ -210,48 +270,88 @@ async function getVideoHistory(context: any, req: any): Promise<void> {
     context.res = {
       status: 200,
       body: {
-        videoHistory: videoHistory.map((item: any) => {
-          // 🖼️ サムネイルURLをプロキシ形式に変換
-          let proxyThumbnailUrl = item.thumbnailUrl;
-          if (item.thumbnailUrl && !item.thumbnailUrl.startsWith('/api/image-proxy')) {
-            try {
-              const url = new URL(item.thumbnailUrl);
-              const blobPath = url.pathname.substring(1); // 最初の'/'を削除
-              proxyThumbnailUrl = `/api/image-proxy?path=${encodeURIComponent(blobPath)}`;
-              context.log(`🔄 [PROXY] サムネイルURLを変換: ${item.thumbnailUrl} → ${proxyThumbnailUrl}`);
-            } catch (urlError) {
-              context.log(`⚠️ [WARNING] サムネイルURL変換失敗: ${item.thumbnailUrl}`);
-              // 変換失敗時は元のURLを使用
+        videoHistory: finalVideoHistory.map((item: any) => {
+          // 🖼️ サムネイルURL生成（Blob Storage優先、従来URLもプロキシ経由でOK）
+          let proxyThumbnailUrl = null;
+          
+          // thumbnailBlobPathがある場合はそれを使用（優先）
+          if (item.thumbnailBlobPath) {
+            proxyThumbnailUrl = `/api/image-proxy?path=${encodeURIComponent(item.thumbnailBlobPath)}`;
+            context.log(`🔄 [PROXY] BlobPathからサムネイルURL生成: ${item.thumbnailBlobPath} → ${proxyThumbnailUrl}`);
+          }
+          // thumbnailBlobPathがなく、thumbnailUrlがBlob Storage URLの場合
+          else if (item.thumbnailUrl && (item.thumbnailUrl.includes('.blob.core.windows.net') || item.thumbnailUrl.startsWith('/api/image-proxy'))) {
+            if (item.thumbnailUrl.startsWith('/api/image-proxy')) {
+              proxyThumbnailUrl = item.thumbnailUrl; // 既にプロキシ形式
+            } else {
+              try {
+                const url = new URL(item.thumbnailUrl);
+                const blobPath = url.pathname.substring(1); // 最初の'/'を削除
+                proxyThumbnailUrl = `/api/image-proxy?path=${encodeURIComponent(blobPath)}`;
+                context.log(`🔄 [PROXY] Blob StorageサムネイルURLを変換: ${item.thumbnailUrl} → ${proxyThumbnailUrl}`);
+              } catch (urlError) {
+                context.log(`⚠️ [WARNING] Blob StorageサムネイルURL変換失敗: ${item.thumbnailUrl}`);
+              }
             }
           }
+          // 🆕 従来のOpenAI APIサムネイルもプロキシ経由で表示（古い履歴のため）
+          else if (item.thumbnailUrl) {
+            proxyThumbnailUrl = `/api/image-proxy?url=${encodeURIComponent(item.thumbnailUrl)}`;
+            context.log(`� [PROXY] 従来サムネイルURLをプロキシ経由で表示: ${item.thumbnailUrl} → ${proxyThumbnailUrl}`);
+          }
 
-          // 🎬 動画URLもプロキシ形式に変換
-          let proxyVideoUrl = item.videoUrl;
-          if (item.videoUrl && !item.videoUrl.startsWith('/api/image-proxy')) {
-            try {
-              const url = new URL(item.videoUrl);
-              const blobPath = url.pathname.substring(1); // 最初の'/'を削除
-              proxyVideoUrl = `/api/image-proxy?path=${encodeURIComponent(blobPath)}`;
-              context.log(`🔄 [PROXY] 動画URLを変換: ${item.videoUrl} → ${proxyVideoUrl}`);
-            } catch (urlError) {
-              context.log(`⚠️ [WARNING] 動画URL変換失敗: ${item.videoUrl}`);
-              // 変換失敗時は元のURLを使用
+          // 🎬 動画URL生成（Blob Storage優先、従来URLもプロキシ経由でOK）
+          let proxyVideoUrl = null;
+          
+          // videoBlobPathがある場合はそれを使用（優先）
+          if (item.videoBlobPath) {
+            proxyVideoUrl = `/api/image-proxy?path=${encodeURIComponent(item.videoBlobPath)}`;
+            context.log(`🔄 [PROXY] BlobPathから動画URL生成: ${item.videoBlobPath} → ${proxyVideoUrl}`);
+          }
+          // videoBlobPathがなく、videoUrlがBlob Storage URLの場合
+          else if (item.videoUrl && (item.videoUrl.includes('.blob.core.windows.net') || item.videoUrl.startsWith('/api/image-proxy'))) {
+            if (item.videoUrl.startsWith('/api/image-proxy')) {
+              proxyVideoUrl = item.videoUrl; // 既にプロキシ形式
+            } else {
+              try {
+                const url = new URL(item.videoUrl);
+                const blobPath = url.pathname.substring(1); // 最初の'/'を削除
+                proxyVideoUrl = `/api/image-proxy?path=${encodeURIComponent(blobPath)}`;
+                context.log(`🔄 [PROXY] Blob Storage動画URLを変換: ${item.videoUrl} → ${proxyVideoUrl}`);
+              } catch (urlError) {
+                context.log(`⚠️ [WARNING] Blob Storage動画URL変換失敗: ${item.videoUrl}`);
+              }
             }
+          }
+          // 🆕 従来のOpenAI API動画URLもプロキシ経由で表示（古い履歴のため）
+          else if (item.videoUrl) {
+            proxyVideoUrl = `/api/image-proxy?url=${encodeURIComponent(item.videoUrl)}`;
+            context.log(`� [PROXY] 従来動画URLをプロキシ経由で表示: ${item.videoUrl} → ${proxyVideoUrl}`);
           }
 
           return {
             ...item,
-            thumbnailUrl: proxyThumbnailUrl, // プロキシURLに変換
-            videoUrl: proxyVideoUrl, // プロキシURLに変換
+            thumbnailUrl: proxyThumbnailUrl, // Blob StorageベースのプロキシURLまたはnull
+            videoUrl: proxyVideoUrl, // Blob StorageベースのプロキシURLまたはnull
             // メタデータを明示的に展開して表示
             fullMetadata: item.metadata,
             debugInfo: {
               hasJobId: !!item.jobId,
               hasGenerationId: !!(item.metadata?.generationId),
-              hasVideoUrl: !!item.videoUrl,
-              hasThumbnailUrl: !!item.thumbnailUrl,
-              thumbnailProxyUrl: proxyThumbnailUrl,
-              videoProxyUrl: proxyVideoUrl,
+              hasVideoUrl: !!proxyVideoUrl, // Blob Storageベースのみ
+              hasThumbnailUrl: !!proxyThumbnailUrl, // Blob Storageベースのみ
+              hasBlobPaths: {
+                video: !!item.videoBlobPath,
+                thumbnail: !!item.thumbnailBlobPath
+              },
+              originalUrls: {
+                video: item.videoUrl,
+                thumbnail: item.thumbnailUrl
+              },
+              proxyUrls: {
+                video: proxyVideoUrl,
+                thumbnail: proxyThumbnailUrl
+              },
               allKeys: Object.keys(item),
               videoSettings: item.videoSettings // 🐛 videoSettingsも詳細ログに追加
             }
@@ -267,13 +367,31 @@ async function getVideoHistory(context: any, req: any): Promise<void> {
           });
           return item;
         }),
-        stats: stats || { totalCount: 0, completedCount: 0, activeCount: 0, failedCount: 0 },
+        stats: stats || { 
+          totalHistoryCount: 0, 
+          totalJobCount: 0, 
+          completedWithBlobCount: 0, 
+          activeCount: 0, 
+          failedCount: 0, 
+          cancelledCount: 0 
+        },
         pagination: { limit, offset, hasMore: videoHistory.length === limit },
         debugSummary: {
-          totalItems: videoHistory.length,
-          itemsWithGenerationId: videoHistory.filter((item: any) => item.metadata?.generationId).length,
-          itemsWithVideoUrl: videoHistory.filter((item: any) => item.videoUrl).length,
-          metadataKeys: [...new Set(videoHistory.flatMap((item: any) => Object.keys(item.metadata || {})))]
+          totalItems: finalVideoHistory.length,
+          itemsWithGenerationId: finalVideoHistory.filter((item: any) => item.metadata?.generationId).length,
+          itemsWithVideoUrl: finalVideoHistory.filter((item: any) => item.videoUrl).length,
+          itemsWithBlobPaths: {
+            video: finalVideoHistory.filter((item: any) => item.videoBlobPath).length,
+            thumbnail: finalVideoHistory.filter((item: any) => item.thumbnailBlobPath).length,
+            both: finalVideoHistory.filter((item: any) => item.videoBlobPath && item.thumbnailBlobPath).length
+          },
+          filteringResults: {
+            originalCount: allHistory.length,
+            filteredCount: finalVideoHistory.length,
+            excludedCount: allHistory.length - finalVideoHistory.length,
+            usingFallback: videoHistory.length === 0
+          },
+          metadataKeys: [...new Set(finalVideoHistory.flatMap((item: any) => Object.keys(item.metadata || {})))]
         }
       }
     };
